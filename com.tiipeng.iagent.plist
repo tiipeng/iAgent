@@ -11,7 +11,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/var/jb/var/mobile/iagent/venv/bin/python</string>
-        <string>/var/jb/usr/local/lib/iagent/main.py</string>
+        <string>/var/jb/var/mobile/iagent/code/main.py</string>
     </array>
 
     <key>EnvironmentVariables</key>
