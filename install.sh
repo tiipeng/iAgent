@@ -60,8 +60,10 @@ echo "[2/5] Creating Python virtualenv..."
 # ── Install dependencies ─────────────────────────────────────────────────
 echo "[3/5] Installing Python dependencies (this may take a minute)..."
 PIP="$IAGENT_HOME/venv/bin/pip"
-SSL_CERT_FILE=/var/jb/etc/ssl/cert.pem "$PIP" install --upgrade pip --quiet
-SSL_CERT_FILE=/var/jb/etc/ssl/cert.pem "$PIP" install -r "$IAGENT_SRC/requirements.txt" --quiet
+export SSL_CERT_FILE=/var/jb/etc/ssl/cert.pem
+"$PIP" install --upgrade pip
+# Prefer binary wheels; fall back to source only when no wheel matches.
+"$PIP" install --prefer-binary -r "$IAGENT_SRC/requirements.txt"
 echo "      Dependencies installed."
 
 # ── Copy application code ────────────────────────────────────────────────
