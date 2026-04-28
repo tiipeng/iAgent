@@ -34,22 +34,39 @@ python main.py
 
 ---
 
-## Deploy to iPad (via SSH)
+## Deploy on the iPad (one-liner)
+
+Open a terminal on the iPad (NewTerm 3 or SSH in). Make sure `git`, `curl`, and `python3` are installed via Sileo, then run:
 
 ```bash
-# 1. Transfer the repo
+curl -fsSL https://raw.githubusercontent.com/tiipeng/iAgent/main/bootstrap.sh | sh
+```
+
+This clones the repo to `/tmp/iagent_src` and runs `install.sh`, which:
+
+1. Detects the highest available `python3.x` (≥ 3.9)
+2. Creates a venv at `/var/jb/var/mobile/iagent/venv`
+3. Installs the Python dependencies
+4. Copies the application code to `/var/jb/usr/local/lib/iagent/`
+5. Installs the LaunchDaemon plist and starts it
+
+After the installer finishes, edit your secrets and restart the daemon:
+
+```bash
+nano /var/jb/var/mobile/iagent/.env          # TELEGRAM_TOKEN, OPENAI_API_KEY
+nano /var/jb/var/mobile/iagent/config.yaml   # allowed_user_ids
+
+launchctl unload /var/jb/Library/LaunchDaemons/com.tiipeng.iagent.plist
+launchctl load   /var/jb/Library/LaunchDaemons/com.tiipeng.iagent.plist
+
+tail -f /var/jb/var/mobile/iagent/logs/stderr.log
+```
+
+### Alternative: SCP from another machine
+
+```bash
 scp -r iAgent/ root@<iPad-IP>:/tmp/iagent_src
-
-# 2. SSH in and run the installer
-ssh root@<iPad-IP>
-sh /tmp/iagent_src/install.sh
-
-# 3. Add secrets
-nano /var/jb/var/mobile/iagent/.env
-# → paste TELEGRAM_TOKEN and OPENAI_API_KEY
-
-# 4. Start the daemon
-launchctl load /var/jb/Library/LaunchDaemons/com.tiipeng.iagent.plist
+ssh root@<iPad-IP> sh /tmp/iagent_src/install.sh
 ```
 
 ---
