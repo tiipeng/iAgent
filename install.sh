@@ -77,6 +77,7 @@ cp -R "$IAGENT_SRC/main.py" \
       "$IAGENT_SRC/doctor.py" \
       "$IAGENT_SRC/capabilities.py" \
       "$IAGENT_SRC/daemon_wrapper.sh" \
+      "$IAGENT_SRC/iagent.sh" \
       "$IAGENT_SRC/config" \
       "$IAGENT_SRC/agent" \
       "$IAGENT_SRC/tools" \
@@ -102,6 +103,22 @@ _render_launcher doctor doctor.py
 
 # The daemon wrapper must be executable for launchd to invoke it.
 chmod +x "$IAGENT_CODE/daemon_wrapper.sh"
+
+# Drop the unified `iagent` command at $IAGENT_HOME/iagent and make it the
+# canonical launcher. Replaces the per-tool {chat,setup,doctor} shims.
+cp "$IAGENT_CODE/iagent.sh" "$IAGENT_HOME/iagent"
+chmod +x "$IAGENT_HOME/iagent"
+
+# Make `iagent` callable from anywhere: add to ~/.zshrc PATH if not already.
+ZSHRC="$HOME/.zshrc"
+PATH_LINE='export PATH="/var/jb/var/mobile/iagent:$PATH"  # iagent'
+if [ -f "$ZSHRC" ] && ! grep -q '/var/jb/var/mobile/iagent' "$ZSHRC" 2>/dev/null; then
+    printf '\n%s\n' "$PATH_LINE" >> "$ZSHRC"
+    echo "      Added iagent to PATH in $ZSHRC"
+elif [ ! -f "$ZSHRC" ]; then
+    printf '%s\n' "$PATH_LINE" > "$ZSHRC"
+    echo "      Created $ZSHRC with iagent in PATH"
+fi
 
 # ── Render the LaunchDaemon plist with current paths ────────────────────
 echo "[5/5] Rendering LaunchDaemon plist..."
@@ -146,9 +163,19 @@ else
 fi
 
 echo ""
-echo "Useful commands:"
-echo "  Setup wizard:   $IAGENT_HOME/setup       # re-runnable, never destructive"
-echo "  Health check:   $IAGENT_HOME/doctor      # diagnose any problem"
-echo "  CLI chat:       $IAGENT_HOME/chat        # interactive REPL for debugging"
-echo "  Tail logs:      tail -f $IAGENT_HOME/logs/stderr.log"
-echo "  Daemon status:  launchctl list | grep iagent"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo " The 'iagent' command is now installed."
+echo " Open a NEW shell (or run: source ~/.zshrc) and try:"
+echo ""
+echo "   iagent          start the bot in tmux"
+echo "   iagent attach   attach to the bot's session"
+echo "   iagent stop     stop the bot"
+echo "   iagent status   see if the bot is running"
+echo "   iagent logs     tail the logs"
+echo "   iagent chat     local CLI REPL (offline from Telegram)"
+echo "   iagent doctor   health check"
+echo "   iagent setup    re-run the setup wizard"
+echo "   iagent help     full help"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "If 'iagent' is not found, install tmux from Sileo first:  apt install tmux"
