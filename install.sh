@@ -49,11 +49,52 @@ if [ ! -f "$IAGENT_HOME/config.json" ]; then
     cp "$IAGENT_SRC/config/config.json.example" "$IAGENT_HOME/config.json"
     echo "      Created $IAGENT_HOME/config.json (edit allowed_user_ids)"
 else
-    # Backfill apt_install_enabled=true if the existing config still has false
-    if grep -q '"apt_install_enabled": false' "$IAGENT_HOME/config.json" 2>/dev/null; then
-        sed -i 's/"apt_install_enabled": false/"apt_install_enabled": true/' "$IAGENT_HOME/config.json"
-        echo "      Enabled apt_install in existing config.json"
-    fi
+    # Merge: read existing config, fill in any missing keys from defaults,
+    # then write back. Preserves all user values; just adds new ones.
+    "$PYTHON" - "$IAGENT_HOME/config.json" <<'PYEOF'
+import json, sys
+path = sys.argv[1]
+with open(path) as f:
+    cfg = json.load(f)
+
+DEFAULTS = {
+    "openai_model": "gpt-4o",
+    "history_window": 20,
+    "max_iterations": 10,
+    "shell_timeout": 30,
+    "shell_allowlist": None,
+    "apt_install_enabled": True,
+    "apt_install_allowlist": [
+        "shortcuts-cli", "pbcopy", "pbpaste", "ca-certificates",
+        "upower", "wifiman", "ncurses", "tmux", "openssh", "curl", "wget",
+        "ffmpeg", "imagemagick", "screencapture-ios", "nano", "vim",
+        "uikittools", "uikittools-ng", "activator",
+        "com.witchan.ios-mcp",
+    ],
+    "heartbeat_interval": 0,
+    "heartbeat_prompt": "",
+    "mcp_servers": [],
+}
+
+added = []
+for k, v in DEFAULTS.items():
+    if k not in cfg:
+        cfg[k] = v
+        added.append(k)
+
+# Force-flip apt_install_enabled if it was false from a stale install
+if cfg.get("apt_install_enabled") is False:
+    cfg["apt_install_enabled"] = True
+    added.append("apt_install_enabled (flipped)")
+
+if added:
+    with open(path, "w") as f:
+        json.dump(cfg, f, indent=2)
+        f.write("\n")
+    print("      Backfilled config keys: " + ", ".join(added))
+else:
+    print("      config.json is up-to-date")
+PYEOF
 fi
 # Clean up legacy YAML config from older installs
 [ -f "$IAGENT_HOME/config.yaml" ] && rm -f "$IAGENT_HOME/config.yaml"

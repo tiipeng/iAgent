@@ -201,18 +201,33 @@ async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 @_guard
 async def cmd_battery(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # iOS jailbreak: battery info lives in sysfs or via upower
-    out = await _shell(
-        "( "
-        "  pct=$(cat /sys/class/power_supply/battery/capacity 2>/dev/null) && "
-        "  sta=$(cat /sys/class/power_supply/battery/status 2>/dev/null) && "
-        "  echo \"${pct}% — ${sta}\""
-        ") || "
-        "upower -i $(upower -e 2>/dev/null | grep battery | head -1) 2>/dev/null | "
-        "  grep -E 'percentage|state' | sed 's/^[ ]*//' || "
-        "echo 'Battery info unavailable. Try: apt install upower'"
+    # Try, in order: sysfs, upower, iOS Shortcut. Show what worked.
+    pct = await _shell("cat /sys/class/power_supply/battery/capacity 2>/dev/null")
+    if pct and pct.isdigit():
+        sta = await _shell("cat /sys/class/power_supply/battery/status 2>/dev/null")
+        await update.message.reply_text(
+            f"*Battery*\n{pct}% — {sta or 'unknown'}", parse_mode="Markdown"
+        )
+        return
+
+    upower = await _shell(
+        "upower -i $(upower -e 2>/dev/null | grep -i battery | head -1) 2>/dev/null "
+        "| grep -E 'percentage|state' | sed 's/^[ ]*//'"
     )
-    await update.message.reply_text(f"*Battery*\n{out}", parse_mode="Markdown")
+    if upower:
+        await update.message.reply_text(
+            f"*Battery* (via upower)\n```\n{upower}\n```", parse_mode="Markdown"
+        )
+        return
+
+    await update.message.reply_text(
+        "*Battery* — no source available\n"
+        "Tried: `/sys/class/power_supply/battery/` (Linux sysfs, not on iOS)\n"
+        "Tried: `upower` (not installed)\n\n"
+        "Fix: `iagent activate` (installs upower)\n"
+        "Or: create the 'iAgent Health' Shortcut and the agent will use it.",
+        parse_mode="Markdown",
+    )
 
 
 @_guard

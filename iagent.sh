@@ -52,6 +52,9 @@ Usage:
   iagent chat        Open the local CLI REPL (offline from Telegram).
   iagent setup       Re-run the interactive setup wizard.
   iagent doctor      Run the health check.
+  iagent activate    Install support pkgs, add sudoers rule, wire ios-mcp,
+                     restart. Idempotent — re-run any time. Run once after
+                     a fresh install to unlock all features.
 
   iagent help        Show this message.
 EOF
@@ -138,6 +141,87 @@ case "$cmd" in
 
     doctor)
         exec "$PY" "$CODE/doctor.py"
+        ;;
+
+    activate)
+        # Idempotent: install support packages, sudoers rule, locate ios-mcp,
+        # wire it into config, restart bot.
+        echo "iAgent activate — wiring up everything Phase 1–4 needs."
+        echo
+
+        # 1. Sudoers rule for passwordless apt
+        SUDOERS=/var/jb/etc/sudoers.d/iagent
+        if [ ! -f "$SUDOERS" ]; then
+            echo "[1/4] Adding passwordless apt sudoers rule (one-time, needs your password once)…"
+            echo "      File: $SUDOERS"
+            echo "      Rule: mobile ALL=NOPASSWD: /var/jb/usr/bin/apt"
+            printf "      Continue? [Y/n] "
+            read -r answer
+            case "$answer" in
+                ""|y|Y|yes|YES)
+                    echo 'mobile ALL=NOPASSWD: /var/jb/usr/bin/apt' | sudo tee "$SUDOERS" >/dev/null
+                    sudo chmod 440 "$SUDOERS"
+                    echo "      ✓ sudoers rule added"
+                    ;;
+                *) echo "      Skipped — apt_install will fail until you add it manually." ;;
+            esac
+        else
+            echo "[1/4] Sudoers rule already in place: $SUDOERS"
+        fi
+
+        # 2. Install support packages (best-effort; missing ones are skipped)
+        echo
+        echo "[2/4] Installing support packages…"
+        sudo -n /var/jb/usr/bin/apt update 2>/dev/null || sudo /var/jb/usr/bin/apt update
+        for pkg in com.witchan.ios-mcp uikittools-ng upower wifiman screencapture-ios pbcopy; do
+            printf "      installing %s … " "$pkg"
+            if sudo -n /var/jb/usr/bin/apt install -y --no-install-recommends "$pkg" >/dev/null 2>&1; then
+                echo "ok"
+            else
+                echo "skipped (not in repo or already installed)"
+            fi
+        done
+
+        # 3. Locate ios-mcp and wire it into config.json
+        echo
+        echo "[3/4] Locating ios-mcp binary…"
+        IOSMCP=""
+        for cand in /var/jb/usr/bin/ios-mcp /var/jb/usr/bin/ios-mcp-server /var/jb/usr/local/bin/ios-mcp; do
+            if [ -x "$cand" ]; then IOSMCP="$cand"; break; fi
+        done
+        if [ -z "$IOSMCP" ] && command -v dpkg >/dev/null 2>&1; then
+            IOSMCP=$(dpkg -L com.witchan.ios-mcp 2>/dev/null \
+                     | grep -E '/(bin|sbin)/' \
+                     | head -1)
+        fi
+
+        if [ -n "$IOSMCP" ] && [ -x "$IOSMCP" ]; then
+            echo "      Found: $IOSMCP"
+            "$PY" - "$IAGENT_HOME/config.json" "$IOSMCP" <<'PYEOF'
+import json, sys
+path, binary = sys.argv[1], sys.argv[2]
+with open(path) as f: cfg = json.load(f)
+servers = cfg.get("mcp_servers", [])
+# Replace any existing 'ios' entry, otherwise append
+servers = [s for s in servers if s.get("name") != "ios"]
+servers.append({"name": "ios", "command": binary})
+cfg["mcp_servers"] = servers
+with open(path, "w") as f:
+    json.dump(cfg, f, indent=2); f.write("\n")
+print(f"      ✓ wired '{binary}' into mcp_servers")
+PYEOF
+        else
+            echo "      Not found. Install via Sileo or apt: sudo apt install com.witchan.ios-mcp"
+            echo "      You can add it to config.json later under 'mcp_servers'."
+        fi
+
+        # 4. Restart bot
+        echo
+        echo "[4/4] Restarting bot…"
+        "$0" restart
+        echo
+        echo "Done. Check 'iagent logs' for 'MCP \"ios\" connected' line."
+        echo "In Telegram: /mcp to see registered tools."
         ;;
 
     help|--help|-h)
