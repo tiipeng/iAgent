@@ -199,13 +199,124 @@ These features turn iAgent from "a tool that calls tools" into "an agent that gr
 
 ---
 
-## Phase 4 — Multi-channel (parking lot)
+## Phase 4 — Setup wizard & Sileo gateway
 
-If iAgent needs to handle more than Telegram + CLI, the abstraction should look like openclaw's gateway model: a unified "inbound message" event source that channel adapters publish to.
+The current install is "edit two files in nano, then paste four sudo commands". That works once you know the layout, but it's hostile for a fresh user, and there's no way for the agent itself to install Sileo packages it discovers it needs (e.g., `pbcopy` for the clipboard tool, `clang` if a future dep needs to compile). This phase fixes both.
 
-Likely the wrong direction for a personal-device agent. Most users want one channel (Telegram). Don't build until there's a concrete second channel that's actually useful — probably **iMessage** via BlueBubbles, since the iPad already has the Messages app.
+### 4.1 `iagent setup` — interactive setup wizard
 
-Listed for completeness, not for execution.
+**What:** A new `setup.py` (and a launcher at `$IAGENT_HOME/setup`) that walks a fresh user through onboarding in the terminal:
+
+```
+iAgent setup wizard
+───────────────────
+[1/6] Telegram bot token (from @BotFather): ******
+      → Verifying… ok, bot is @your_iagent_bot
+[2/6] OpenAI API key (sk-...): ******
+      → Verifying… ok, account in good standing
+[3/6] Your Telegram numeric user ID (from @userinfobot): 123456789
+      → Saved to allowed_user_ids
+[4/6] Personality / SOUL.md — open editor now? [y/N]: y
+      (opens nano on $IAGENT_HOME/SOUL.md with a template)
+[5/6] Heartbeat interval in minutes (0 = disabled) [0]:
+[6/6] Install LaunchDaemon now (requires sudo)? [Y/n]: y
+      → sudo cp / chown / chmod / launchctl load …
+      → Daemon loaded. PID 6789.
+
+✓ Setup complete. Send /start to your bot in Telegram.
+```
+
+**Why:**
+- Deletes the manual nano steps from the README.
+- Validates tokens / API keys *before* writing them, instead of failing at daemon startup.
+- One canonical happy path, with sensible defaults.
+- Makes re-running safe — detects existing values and offers to keep them.
+
+**Scope:** ~250 lines.
+- New file `setup.py` at the project root. Pure stdlib + `httpx` (already a dep) for the validation HTTP calls.
+- Validates Telegram token by calling `getMe`; rejects on 401.
+- Validates OpenAI key by calling `/v1/models` (cheap); rejects on 401.
+- Re-uses the JSON config writer from `config/settings.py` so the format stays canonical.
+- Wraps the four sudo commands behind a single `[Y/n]` prompt and runs them via `subprocess.run` (with `sudo -p` so the user sees a real prompt for their password).
+- New launcher at `$IAGENT_HOME/setup` (set up by `install.sh`) that sets `IAGENT_HOME` and `SSL_CERT_FILE` like the `chat` launcher already does.
+- `bootstrap.sh` runs `setup.py` automatically on first install (when `.env` doesn't yet exist), turning the install one-liner into a complete onboarding.
+
+**Risks:**
+- Token validation requires network. If the iPad is offline at setup time, fall back to "save without verifying, warn user".
+- Re-running setup must never overwrite existing values silently — always confirm.
+
+### 4.2 `iagent doctor` — diagnose common issues
+
+**What:** A read-only diagnostics command that checks every known failure mode and reports green/red:
+
+```
+$ iagent doctor
+✓ Python 3.9.9 at /var/jb/usr/bin/python3.9
+✓ venv exists with 27 packages installed
+✓ .env present, TELEGRAM_TOKEN set, OPENAI_API_KEY set
+✓ config.json valid, allowed_user_ids has 1 entry
+✓ Telegram token verified — bot @your_iagent_bot
+✓ OpenAI key verified — gpt-4o accessible
+✓ LaunchDaemon loaded, PID 6789, exit 0
+✓ Last log entry 2 minutes ago, no errors
+✓ Disk space: 8.3 GB free
+✗ ca-certificates: not installed (TLS may fail)
+   → fix: sudo apt install ca-certificates
+```
+
+**Why:** When something breaks, the user shouldn't have to read 12 troubleshooting paragraphs to figure out which step failed. This collapses all of them into one command.
+
+**Scope:** ~150 lines, single file `doctor.py`. Each check is a small function that returns `(name, ok: bool, message, fix_suggestion)`.
+
+**Risks:** None — read-only.
+
+### 4.3 `apt_install` tool — agent installs its own Sileo packages
+
+**What:** A new tool that lets the agent install Procursus packages on demand, with explicit user approval. The agent calls `apt_install(package="pbcopy", reason="needed for the clipboard tool")`. Implementation:
+
+1. The tool sends a confirmation message to the user (Telegram or CLI prompt): *"iAgent wants to install `pbcopy` — reason: needed for the clipboard tool. Approve? [y/N]"*
+2. If approved, runs `sudo apt-get install -y <package>` non-interactively.
+3. Returns the install output (or `"denied by user"`) to the agent.
+
+A small allowlist of "always safe" packages (e.g., `pbcopy`, `terminal-notifier`, `ca-certificates`) can be configured for one-tap approval.
+
+**Why:**
+- iAgent already discovers it needs packages (we hit `clang` and `ca-certificates` during install). Letting the agent ask is more transparent than a static `requirements.txt`.
+- Future tools (clipboard, notifications, photo) will fail gracefully if their underlying CLI isn't installed, then propose installing it.
+- Combined with `iagent doctor`, the agent can self-heal common breakage: "ca-certificates is missing, want me to install it? [y/N]".
+
+**Scope:** ~80 lines.
+- New file `tools/apt.py`.
+- Two tools: `apt_install(package, reason)` and `apt_search(query)` (the latter is read-only, no approval needed).
+- Approval flow — see Risks. Default to **always require approval**, even for allowlisted packages, until 4.4 below is in place.
+- New config keys: `apt_install_enabled` (bool, default `false` — opt-in), `apt_install_allowlist` (list of pre-approved package names).
+
+**Risks:**
+- **Sudo password.** Running `sudo apt-get install` non-interactively requires either a passwordless sudoers rule for `mobile` (one-line edit to `/var/jb/etc/sudoers.d/iagent`) or pre-cached sudo credentials. The wizard (4.1) should offer to add the sudoers rule with a clear explanation: *"This lets iAgent install packages without asking for your password each time. Decline if you'd rather approve every install manually."*
+- **Supply chain.** `apt-get install` from the Procursus repo is as trusted as the repo itself. Don't accept arbitrary `.deb` URLs. The tool should validate the package name format (`^[a-z0-9-]+$`) and refuse anything else.
+- **Disk space.** Some Sileo packages are huge (`clang` ≈ 100 MB). Tool should refuse if free disk < 500 MB and report back.
+- **Per-package approval prompt UX.** In CLI mode this is `input("approve? [y/N]")`. In Telegram mode, the bot needs to send an inline keyboard with Y/N buttons and wait for the callback before proceeding — slightly more code, but cleaner than asking the user to type back.
+
+### 4.4 Capability registry
+
+**What:** A small registry at `$IAGENT_HOME/capabilities.json` that records which Sileo packages and Shortcuts the agent has confirmed are available. Tools query it before running so they can fail fast with a useful suggestion.
+
+```json
+{
+  "shortcuts": ["iAgent: Notify", "iAgent: Take Photo"],
+  "apt": {"pbcopy": "installed", "clang": "missing"},
+  "verified_at": "2026-04-28T12:34:56Z"
+}
+```
+
+**Why:** Without this, every tool call has to probe its dependency. With it, the agent knows up front what's available and can route around what's missing — e.g., the notification tool can fall back to a Telegram message if `iAgent: Notify` shortcut isn't installed.
+
+**Scope:** ~50 lines.
+- New file `capabilities.py` — lazy loader, refresh-on-doctor.
+- `iagent doctor` populates it.
+- Tools read it via a single `has_capability("apt:pbcopy")` helper.
+
+**Risks:** Stale entries — registry should be invalidated whenever `apt-get install/remove` runs. Tie this to the `apt_install` tool.
 
 ---
 
@@ -222,14 +333,18 @@ These are deliberately out of scope. Don't add them without a concrete reason:
 
 ## Implementation order (recommended)
 
-1. **SOUL.md** (1.1) — 15 minutes, instant feel improvement
-2. **Skills lite** (1.3) — 1 evening, large capability multiplier
-3. **Shortcuts bridge** (2.1) — 1 evening, unlocks Phase 2 entirely
-4. **Notifications** (2.2) — 30 minutes once 2.1 is done
-5. **Heartbeat** (1.2) — 1 weekend, requires care around cost & loops
-6. **Clipboard** (2.3) — 15 minutes, useful daily
-7. Photo / vision (2.4) — when there's a use case
-8. Memory facts (3.2) — when conversation history isn't enough
-9. Skill creation (3.1) — only after the user has manually written 5+ skills and seen the value
+1. **Setup wizard** (4.1) — 1 evening, deletes the manual onboarding nano dance
+2. **Doctor** (4.2) — 2 hours, one command replaces 12 troubleshooting paragraphs
+3. **SOUL.md** (1.1) — 15 minutes, instant feel improvement
+4. **Skills lite** (1.3) — 1 evening, large capability multiplier
+5. **Shortcuts bridge** (2.1) — 1 evening, unlocks Phase 2 entirely
+6. **Notifications** (2.2) — 30 minutes once 2.1 is done
+7. **`apt_install` tool** (4.3) — 1 evening, lets the agent fill its own gaps
+8. **Capability registry** (4.4) — 2 hours, glue between 4.2 and 4.3
+9. **Heartbeat** (1.2) — 1 weekend, requires care around cost & loops
+10. **Clipboard** (2.3) — 15 minutes, useful daily
+11. Photo / vision (2.4) — when there's a use case
+12. Memory facts (3.2) — when conversation history isn't enough
+13. Skill creation (3.1) — only after the user has manually written 5+ skills and seen the value
 
-Phase 3.3 (self-debug) and Phase 4 (multi-channel) — likely never. Listed for completeness.
+Phase 3.3 (self-debug) — likely never. Listed for completeness.
