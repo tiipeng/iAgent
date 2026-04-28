@@ -82,17 +82,22 @@ Setup guide: ask the agent `view skill shortcuts_setup` for step-by-step Shortcu
 
 ## Phase 4 — Self-improvement
 
-### 4.1 Autonomous skill creation ✅ (partial)
+### 4.1 Autonomous skill creation ✅
 
-`write_skill(name, content)` tool lands in Phase 2.3 — the agent can already create and save skills. What's not yet done: the system prompt suffix that *encourages* the agent to propose saving skills after complex tasks, and the heartbeat logic that reviews history and proposes skills proactively.
+`write_skill(name, content)` ships in Phase 2.3. The system prompt now explicitly instructs the agent to propose saving reusable procedures as skills after complex tasks, and to check `list_skills` before inventing a procedure that might already exist.
 
 ### 4.2 Persistent fact memory ✅
 
 `agent/facts.py` + `tools/facts.py` — `remember_fact`, `recall_fact`, `list_facts`, `forget_fact`. Backed by `$IAGENT_HOME/facts.json`. Survives `/clear` and bot restarts. Distinct from conversation history.
 
-### 4.3 Self-debugging ⬜
+### 4.3 Self-debugging ✅
 
-When a tool errors out, the agent reads its own logs, proposes a fix, and (with user approval) writes the patch and runs `iagent restart`. Needs a "self" tool family scoped to `code/`, a `restart_self` tool, and careful gates (never unattended, always git-backed).
+`tools/self_debug.py`:
+- `read_own_logs(lines)` — tail `iagent.log` + `stderr.log`
+- `list_own_files()` — list Python files in `$IAGENT_HOME/code/`
+- `read_own_source(file)` — read any file scoped to `code/`
+- `patch_own_source(file, old_text, new_text, confirm)` — confirm=false shows diff only; confirm=true writes .bak and applies; path must stay inside `code/`
+- `restart_self()` — fires `iagent restart` after 3 s delay so the reply is delivered first
 
 ---
 
@@ -122,6 +127,6 @@ When a tool errors out, the agent reads its own logs, proposes a fix, and (with 
 | 3.3 | Clipboard | ✅ |
 | 3.4 | Photo/Camera + GPT-4o vision | ✅ |
 | 3.5 | Health/Home/Reminders/Location/Music/Files/iMessage | ✅ |
-| 4.1 | Skill creation | 🚧 partial |
+| 4.1 | Skill creation | ✅ |
 | 4.2 | Fact memory | ✅ |
-| 4.3 | Self-debugging | ⬜ |
+| 4.3 | Self-debugging | ✅ |
