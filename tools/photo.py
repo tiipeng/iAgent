@@ -1,24 +1,18 @@
 """Photo / Camera tools — take photos, fetch recent photos, describe with vision.
 
-Phase 3.4. All camera/library access goes through iOS Shortcuts; the only
-native piece is describe_photo which calls GPT-4o vision directly.
+Three access paths, in preference order:
+  1. Direct filesystem — /var/mobile/Media/DCIM/ — works without Shortcuts
+  2. iOS Shortcuts CLI — for camera capture and Photos library API access
+  3. None — graceful degradation with a setup hint
 
-Required Shortcuts (create once in the Shortcuts app):
-  "iAgent Take Photo"
-      Actions: Take Photo → Save to /tmp/iagent_photo.jpg → Return file path text
-      (or: Take Photo → Share → output text path)
-
-  "iAgent Recent Photos"
-      Input: number (limit)
-      Actions: Get N Latest Photos from Library → Save each to workspace → return
-      newline-separated file paths
-
-Photos land in $IAGENT_HOME/workspace/ so file_io can pick them up afterwards.
+`send_photo` posts a file directly to the active Telegram chat using the
+bot's existing token, so the user can SEE the image in the chat.
 """
 from __future__ import annotations
 
 import asyncio
 import base64
+import contextvars
 import os
 import shutil
 import tempfile
@@ -33,14 +27,37 @@ _IAGENT_HOME = Path(os.environ.get("IAGENT_HOME", Path.home() / ".iagent"))
 _SHORTCUTS_BIN = "/var/jb/usr/bin/shortcuts"
 _MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB — GPT-4o limit before quality degrades
 
+# DCIM lives under user mobile's media root (rootless) — direct read access.
+_DCIM_DIRS = [
+    Path("/var/mobile/Media/DCIM"),
+    Path("/var/jb/var/mobile/Media/DCIM"),
+    Path("/private/var/mobile/Media/DCIM"),
+]
+_PHOTO_EXTS = {".jpg", ".jpeg", ".heic", ".png", ".gif", ".webp"}
+
 _openai_api_key: str = ""
 _openai_model: str = "gpt-4o"
+_telegram_token: str = ""
+
+# Chat id of the message currently being handled — set by bot/handlers.py
+# before each agent-loop run so send_photo knows where to post.
+current_chat_id: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar(
+    "iagent_current_chat_id", default=None
+)
 
 
-def configure(api_key: str, model: str = "gpt-4o") -> None:
-    global _openai_api_key, _openai_model
+def configure(api_key: str, model: str = "gpt-4o", telegram_token: str = "") -> None:
+    global _openai_api_key, _openai_model, _telegram_token
     _openai_api_key = api_key
     _openai_model = model
+    _telegram_token = telegram_token
+
+
+def _find_dcim() -> Optional[Path]:
+    for p in _DCIM_DIRS:
+        if p.exists():
+            return p
+    return None
 
 
 def _shortcuts_bin() -> str:
@@ -109,10 +126,11 @@ async def take_photo() -> str:
 @register({
     "name": "read_recent_photos",
     "description": (
-        "Fetch the N most recent photos from the Photos library into the workspace. "
-        "Returns newline-separated file paths. "
-        "Requires a Shortcut 'iAgent Recent Photos' that accepts a number as input "
-        "and saves that many latest photos to $IAGENT_HOME/workspace/, then outputs their paths."
+        "Fetch the N most recent photos from the device's photo library. "
+        "First tries direct filesystem access at /var/mobile/Media/DCIM/ "
+        "(works without Shortcuts on jailbroken iOS). Falls back to the "
+        "'iAgent Recent Photos' Shortcut if DCIM is empty or unreadable. "
+        "Returns newline-separated absolute file paths sorted newest first."
     ),
     "parameters": {
         "type": "object",
@@ -127,12 +145,80 @@ async def take_photo() -> str:
 })
 async def read_recent_photos(limit: int = 5) -> str:
     limit = max(1, min(limit, 20))
+
+    dcim = _find_dcim()
+    if dcim:
+        try:
+            photos = []
+            for p in dcim.rglob("*"):
+                if p.is_file() and p.suffix.lower() in _PHOTO_EXTS:
+                    photos.append(p)
+            photos.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            top = photos[:limit]
+            if top:
+                return "\n".join(str(p) for p in top)
+        except (PermissionError, OSError) as e:
+            return f"[read_recent_photos] DCIM access blocked: {e}"
+
     rc, out, err = await _run_shortcut("iAgent Recent Photos", str(limit))
     if rc != 0:
-        return f"[read_recent_photos failed] {err or out}"
-    if not out:
-        return "No photos returned. Check the 'iAgent Recent Photos' Shortcut."
-    return out
+        return (
+            f"[read_recent_photos] No DCIM access and Shortcut failed: {err or out}\n"
+            "Check that /var/mobile/Media/DCIM/ exists or create the "
+            "'iAgent Recent Photos' Shortcut."
+        )
+    return out or "No photos found."
+
+
+@register({
+    "name": "send_photo",
+    "description": (
+        "Send a photo file to the user via Telegram so they can see it in the chat. "
+        "Pass a local file path (e.g. one returned by read_recent_photos or take_photo). "
+        "Optional caption shows below the image."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Absolute path to a JPEG/PNG/HEIC/WebP file",
+            },
+            "caption": {
+                "type": "string",
+                "description": "Optional caption text",
+            },
+        },
+        "required": ["path"],
+    },
+})
+async def send_photo(path: str, caption: str = "") -> str:
+    if not _telegram_token:
+        return "[send_photo] Telegram token not configured"
+    chat_id = current_chat_id.get()
+    if not chat_id:
+        return "[send_photo] No active chat context (this tool only works during a Telegram message handler)"
+
+    img = Path(path)
+    if not img.exists():
+        return f"[send_photo] File not found: {path}"
+    if img.stat().st_size > 50 * 1024 * 1024:
+        return f"[send_photo] File too large ({img.stat().st_size // 1024 // 1024} MB); Telegram limit is 50 MB"
+
+    url = f"https://api.telegram.org/bot{_telegram_token}/sendPhoto"
+    try:
+        with img.open("rb") as f:
+            files = {"photo": (img.name, f, "application/octet-stream")}
+            data = {"chat_id": str(chat_id)}
+            if caption:
+                data["caption"] = caption[:1024]
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(url, data=data, files=files)
+        if resp.status_code != 200:
+            return f"[send_photo] Telegram error {resp.status_code}: {resp.text[:200]}"
+        return f"Photo sent: {img.name}"
+    except Exception as exc:
+        return f"[send_photo] {exc}"
 
 
 @register({

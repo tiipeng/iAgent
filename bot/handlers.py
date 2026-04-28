@@ -307,6 +307,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         max_iterations=settings.max_iterations,
     )
 
+    # Make this chat reachable from photo tool's send_photo etc.
+    from tools.photo import current_chat_id as _photo_chat_id
+    _photo_chat_id.set(chat_id)
+
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
     try:

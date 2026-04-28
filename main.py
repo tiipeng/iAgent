@@ -100,6 +100,7 @@ def main() -> None:
     photo_tool.configure(
         api_key=settings.openai_api_key,
         model=settings.openai_model,
+        telegram_token=settings.telegram_token,
     )
 
     memory = Memory(settings.db_path)

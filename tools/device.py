@@ -149,6 +149,87 @@ async def take_screenshot() -> str:
     )
 
 
+# ── Sensors / sysctl ──────────────────────────────────────────────────────
+
+# Common sysctl names worth surfacing on iOS jailbreak. Not all are present on
+# every device — get_sensor returns "(unavailable)" if a key doesn't exist.
+_SYSCTL_BY_TOPIC = {
+    "battery":     ["hw.batterycount", "hw.battery.voltage", "hw.battery.capacity"],
+    "thermal":     ["hw.tmp", "hw.cputype", "machdep.xcpm.cpu_thermal_level"],
+    "memory":      ["hw.memsize", "hw.physmem", "hw.usermem", "vm.page_free_count"],
+    "cpu":         ["hw.ncpu", "hw.cpufrequency", "hw.cpufamily", "hw.cputype",
+                    "hw.cpusubtype", "hw.cpu64bit_capable"],
+    "device":      ["hw.machine", "hw.model", "hw.targettype", "kern.hostname",
+                    "kern.osversion", "kern.osrelease", "kern.ostype"],
+    "network":     ["net.inet.ip.forwarding", "net.inet.tcp.sendspace"],
+    "uptime":      ["kern.boottime"],
+    "load":        ["vm.loadavg"],
+}
+
+_SYS_FILES = {
+    "battery":  "/sys/class/power_supply/battery/uevent",
+    "thermal":  "/sys/class/thermal/thermal_zone0/temp",
+    "memory":   "/proc/meminfo",
+    "cpuinfo":  "/proc/cpuinfo",
+    "stat":     "/proc/stat",
+    "loadavg":  "/proc/loadavg",
+    "uptime":   "/proc/uptime",
+}
+
+
+@register({
+    "name": "list_sensors",
+    "description": (
+        "List every sensor / sysctl / sys-file the agent can read on this device. "
+        "Returns a grouped list of topic names (battery, thermal, memory, cpu, "
+        "device, network, uptime, load) plus available /sys and /proc files."
+    ),
+    "parameters": {"type": "object", "properties": {}, "required": []},
+})
+async def list_sensors() -> str:
+    lines = ["sysctl groups (use get_sensor):"]
+    for topic, keys in _SYSCTL_BY_TOPIC.items():
+        lines.append(f"  • {topic}: {', '.join(keys)}")
+    lines.append("\n/sys + /proc files (use file_read):")
+    for name, path in _SYS_FILES.items():
+        exists = "✓" if Path(path).exists() else "✗"
+        lines.append(f"  {exists} {name}: {path}")
+    return "\n".join(lines)
+
+
+@register({
+    "name": "get_sensor",
+    "description": (
+        "Read a sensor / sysctl topic. Pass one of the topic names from list_sensors "
+        "(e.g. 'battery', 'thermal', 'memory', 'cpu', 'device'). "
+        "Returns the values of every sysctl key in that group."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "topic": {
+                "type": "string",
+                "description": "One of: battery, thermal, memory, cpu, device, network, uptime, load",
+            },
+        },
+        "required": ["topic"],
+    },
+})
+async def get_sensor(topic: str) -> str:
+    keys = _SYSCTL_BY_TOPIC.get(topic.lower())
+    if not keys:
+        return f"Unknown topic '{topic}'. Try one of: {', '.join(_SYSCTL_BY_TOPIC)}"
+
+    lines = []
+    for k in keys:
+        val = await _sh(f"sysctl -n {k} 2>/dev/null")
+        if val and "(error)" not in val:
+            lines.append(f"{k} = {val}")
+        else:
+            lines.append(f"{k} = (unavailable)")
+    return "\n".join(lines)
+
+
 # ── Screen brightness ─────────────────────────────────────────────────────
 
 @register({
