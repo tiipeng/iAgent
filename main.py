@@ -12,6 +12,7 @@ from telegram.ext import Application, ApplicationBuilder
 from agent.memory import Memory
 from bot.handlers import register_handlers
 from config.settings import load_settings
+import tools.apt as apt_tool
 import tools.file_io as file_io_tool
 import tools.http_fetch as http_tool
 import tools.shell as shell_tool
@@ -21,6 +22,7 @@ from utils.logger import setup_logger
 import tools.shell  # noqa: F401
 import tools.file_io  # noqa: F401
 import tools.http_fetch  # noqa: F401
+import tools.apt  # noqa: F401
 
 
 async def on_startup(app: Application) -> None:
