@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tiipeng.iagent</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/var/jb/var/mobile/iagent/venv/bin/python3</string>
+        <string>/var/jb/usr/local/lib/iagent/main.py</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/var/mobile</string>
+        <key>IAGENT_HOME</key>
+        <string>/var/jb/var/mobile/iagent</string>
+        <!-- Required so Python can verify TLS certificates on iOS -->
+        <key>SSL_CERT_FILE</key>
+        <string>/var/jb/etc/ssl/cert.pem</string>
+        <key>PATH</key>
+        <string>/var/jb/usr/bin:/var/jb/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>/var/jb/var/mobile/iagent</string>
+
+    <key>StandardOutPath</key>
+    <string>/var/jb/var/mobile/iagent/logs/stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/var/jb/var/mobile/iagent/logs/stderr.log</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart automatically on crash -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Prevent restart storms if the bot crashes repeatedly -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>

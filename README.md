@@ -1,0 +1,113 @@
+# iAgent
+
+Personal AI agent for jailbroken iOS (Dopamine, arm64e). Runs as a **Telegram bot** on your device, using **OpenAI GPT-4o with tool calling** to execute shell commands, read/write files, and fetch URLs — all locally on your iPad.
+
+Inspired by [openclaw](https://github.com/openclaw/openclaw) and [hermes-agent](https://github.com/NousResearch/hermes-agent).
+
+---
+
+## Requirements
+
+- Jailbroken iPad/iPhone — Dopamine (iOS 15–16.5.1, arm64e, rootless)
+- **Python 3.11+** via Sileo (search `python3.11` in Sileo/Procursus repo)
+- `ca-certificates` via Sileo
+- A [Telegram bot token](https://t.me/BotFather)
+- An [OpenAI API key](https://platform.openai.com/api-keys)
+
+> **Note:** Procursus ships Python 3.9.9 by default. You **must** install Python 3.11 first.
+> After installing in Sileo, verify: `python3.11 --version`
+
+---
+
+## Quick Start (Mac / Linux development)
+
+```bash
+git clone https://github.com/tiipeng/iAgent.git
+cd iAgent
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env   # fill in TELEGRAM_TOKEN and OPENAI_API_KEY
+python main.py
+```
+
+---
+
+## Deploy to iPad (via SSH)
+
+```bash
+# 1. Transfer the repo
+scp -r iAgent/ root@<iPad-IP>:/tmp/iagent_src
+
+# 2. SSH in and run the installer
+ssh root@<iPad-IP>
+sh /tmp/iagent_src/install.sh
+
+# 3. Add secrets
+nano /var/jb/var/mobile/iagent/.env
+# → paste TELEGRAM_TOKEN and OPENAI_API_KEY
+
+# 4. Start the daemon
+launchctl load /var/jb/Library/LaunchDaemons/com.tiipeng.iagent.plist
+```
+
+---
+
+## Configuration
+
+Copy `config/config.yaml.example` to `~/.iagent/config.yaml` (or `$IAGENT_HOME/config.yaml`) and edit:
+
+| Key | Default | Description |
+|---|---|---|
+| `allowed_user_ids` | `[]` (open) | Telegram user IDs allowed to use the bot |
+| `openai_model` | `gpt-4o` | Model to use |
+| `history_window` | `20` | Messages kept in context per chat |
+| `shell_timeout` | `30` | Seconds before a shell command is killed |
+| `shell_allowlist` | `null` | If set, only listed commands are allowed |
+
+---
+
+## Available Tools
+
+| Tool | Description |
+|---|---|
+| `shell` | Run a shell command on the device |
+| `read_file` | Read a file from the workspace |
+| `write_file` | Write text to a file in the workspace |
+| `list_files` | List files in a workspace directory |
+| `http_get` | Fetch a URL |
+| `http_post` | Send an HTTP POST request |
+
+---
+
+## Project Structure
+
+```
+iAgent/
+├── main.py              # Entry point
+├── config/
+│   ├── settings.py      # Config loader
+│   └── config.yaml.example
+├── agent/
+│   ├── loop.py          # OpenAI tool-calling loop
+│   ├── memory.py        # SQLite conversation history
+│   └── context.py       # Per-chat state
+├── tools/
+│   ├── registry.py      # Tool registration
+│   ├── shell.py         # Shell execution
+│   ├── file_io.py       # File read/write
+│   └── http_fetch.py    # HTTP requests
+├── bot/
+│   ├── handlers.py      # Telegram handlers
+│   └── middleware.py    # User allowlist
+├── utils/
+│   └── logger.py        # Rotating file logger
+├── com.tiipeng.iagent.plist   # iOS LaunchDaemon
+└── install.sh           # One-shot iOS installer
+```
+
+---
+
+## License
+
+MIT

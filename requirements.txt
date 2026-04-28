@@ -1,0 +1,7 @@
+openai>=1.30
+python-telegram-bot[job-queue]>=20.7
+aiohttp>=3.9
+aiofiles>=23.2
+aiosqlite>=0.20
+python-dotenv>=1.0
+PyYAML>=6.0
