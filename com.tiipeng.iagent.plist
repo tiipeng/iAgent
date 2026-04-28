@@ -14,6 +14,14 @@
         <string>/var/jb/var/mobile/iagent/code/main.py</string>
     </array>
 
+    <!-- Run as the mobile user (not root). Files in IAGENT_HOME are owned
+         by mobile, and Jetsam treats user processes more leniently than
+         root daemons under memory pressure. -->
+    <key>UserName</key>
+    <string>mobile</string>
+    <key>GroupName</key>
+    <string>mobile</string>
+
     <key>EnvironmentVariables</key>
     <dict>
         <key>HOME</key>
@@ -25,6 +33,10 @@
         <string>/var/jb/etc/ssl/cert.pem</string>
         <key>PATH</key>
         <string>/var/jb/usr/bin:/var/jb/bin:/usr/bin:/bin</string>
+        <!-- Force unbuffered stdout/stderr so logs are flushed even when
+             the process is SIGKILL'd by Jetsam under memory pressure. -->
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
     </dict>
 
     <key>WorkingDirectory</key>
@@ -39,12 +51,18 @@
     <key>RunAtLoad</key>
     <true/>
 
-    <!-- Restart automatically on crash -->
+    <!-- Restart automatically on crash. -->
     <key>KeepAlive</key>
     <true/>
 
-    <!-- Prevent restart storms if the bot crashes repeatedly -->
+    <!-- Throttle restarts. 60s gives Jetsam time to release memory before
+         we try again, and reduces the chance of launchd disabling the
+         service after a flurry of OOM kills. -->
     <key>ThrottleInterval</key>
+    <integer>60</integer>
+
+    <!-- Allow a few extra seconds for graceful shutdown on unload. -->
+    <key>ExitTimeOut</key>
     <integer>10</integer>
 </dict>
 </plist>

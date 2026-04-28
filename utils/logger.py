@@ -6,6 +6,25 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 
+class _FlushingFileHandler(RotatingFileHandler):
+    """Flush after every record so SIGKILL by Jetsam doesn't lose logs."""
+    def emit(self, record: logging.LogRecord) -> None:
+        super().emit(record)
+        try:
+            self.flush()
+        except Exception:
+            pass
+
+
+class _FlushingStreamHandler(logging.StreamHandler):
+    def emit(self, record: logging.LogRecord) -> None:
+        super().emit(record)
+        try:
+            self.flush()
+        except Exception:
+            pass
+
+
 def setup_logger(log_dir: Path, level: int = logging.INFO) -> logging.Logger:
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "iagent.log"
@@ -15,12 +34,12 @@ def setup_logger(log_dir: Path, level: int = logging.INFO) -> logging.Logger:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    file_handler = RotatingFileHandler(
+    file_handler = _FlushingFileHandler(
         log_file, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
     )
     file_handler.setFormatter(fmt)
 
-    stream_handler = logging.StreamHandler(sys.stderr)
+    stream_handler = _FlushingStreamHandler(sys.stderr)
     stream_handler.setFormatter(fmt)
 
     root = logging.getLogger()
