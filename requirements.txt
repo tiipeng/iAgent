@@ -17,7 +17,6 @@ aiohttp>=3.9,<3.10
 aiofiles>=23.2
 aiosqlite>=0.20
 python-dotenv>=1.0
-# PyYAML 6.0.3 stopped publishing the cp39 universal2 wheel and pip falls back
-# to the source dist, which needs a C compiler (Procursus does not ship one
-# by default). 6.0.2 still has the prebuilt wheel.
-PyYAML>=6.0,<6.0.3
+# Config is JSON (stdlib) — no PyYAML needed. PyYAML's cp39 universal2
+# wheels are unreliable on PyPI and Procursus does not ship a C compiler
+# to build the source dist.

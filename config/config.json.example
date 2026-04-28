@@ -1,0 +1,17 @@
+{
+  "_comment": "iAgent runtime config. Copy to ~/.iagent/config.json (or $IAGENT_HOME/config.json) and edit. Secrets (TELEGRAM_TOKEN, OPENAI_API_KEY) live in .env.",
+
+  "openai_model": "gpt-4o",
+
+  "_comment_allowed": "Telegram user IDs allowed to use the bot. Get yours from @userinfobot. Leave [] to allow ALL users — NOT recommended.",
+  "allowed_user_ids": [
+    123456789
+  ],
+
+  "history_window": 20,
+  "max_iterations": 10,
+
+  "shell_timeout": 30,
+  "_comment_allowlist": "Optional. If set, only these commands may run via the shell tool. Comment out by removing the key to allow all.",
+  "shell_allowlist": null
+}

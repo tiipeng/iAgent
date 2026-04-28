@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-import yaml
 from dotenv import load_dotenv
 
 _DEFAULT_HOME = Path(os.environ.get("IAGENT_HOME", Path.home() / ".iagent"))
@@ -67,29 +67,31 @@ def load_settings(
     if not openai_api_key:
         raise RuntimeError("OPENAI_API_KEY is not set. Add it to .env or environment.")
 
-    # load optional YAML config
-    yaml_cfg: dict = {}
-    for candidate in filter(None, [config_path, home / "config.yaml", Path("config.yaml")]):
+    # load optional JSON config (we used to support YAML but PyYAML has
+    # no prebuilt wheel for iOS Python 3.9, so JSON keeps the install
+    # zero-dependency on the device)
+    cfg: dict = {}
+    for candidate in filter(None, [config_path, home / "config.json", Path("config.json")]):
         p = Path(candidate)
         if p.exists():
             with open(p) as f:
-                yaml_cfg = yaml.safe_load(f) or {}
+                cfg = json.load(f) or {}
             break
 
-    allowed_raw = yaml_cfg.get("allowed_user_ids", [])
+    allowed_raw = cfg.get("allowed_user_ids", [])
     allowed_ids = [int(x) for x in allowed_raw]
 
     return Settings(
         telegram_token=telegram_token,
         openai_api_key=openai_api_key,
-        openai_model=yaml_cfg.get("openai_model", "gpt-4o"),
+        openai_model=cfg.get("openai_model", "gpt-4o"),
         allowed_user_ids=allowed_ids,
-        data_dir=Path(yaml_cfg.get("data_dir", home)),
-        workspace_root=Path(yaml_cfg.get("workspace_root", home / "workspace")),
-        db_path=Path(yaml_cfg.get("db_path", home / "iagent.db")),
-        log_dir=Path(yaml_cfg.get("log_dir", home / "logs")),
-        history_window=int(yaml_cfg.get("history_window", 20)),
-        max_iterations=int(yaml_cfg.get("max_iterations", 10)),
-        shell_timeout=int(yaml_cfg.get("shell_timeout", 30)),
-        shell_allowlist=yaml_cfg.get("shell_allowlist", None),
+        data_dir=Path(cfg.get("data_dir", home)),
+        workspace_root=Path(cfg.get("workspace_root", home / "workspace")),
+        db_path=Path(cfg.get("db_path", home / "iagent.db")),
+        log_dir=Path(cfg.get("log_dir", home / "logs")),
+        history_window=int(cfg.get("history_window", 20)),
+        max_iterations=int(cfg.get("max_iterations", 10)),
+        shell_timeout=int(cfg.get("shell_timeout", 30)),
+        shell_allowlist=cfg.get("shell_allowlist", None),
     )

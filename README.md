@@ -54,7 +54,7 @@ After the installer finishes, edit your secrets and restart the daemon:
 
 ```bash
 nano /var/jb/var/mobile/iagent/.env          # TELEGRAM_TOKEN, OPENAI_API_KEY
-nano /var/jb/var/mobile/iagent/config.yaml   # allowed_user_ids
+nano /var/jb/var/mobile/iagent/config.json   # allowed_user_ids
 
 launchctl unload /var/jb/Library/LaunchDaemons/com.tiipeng.iagent.plist
 launchctl load   /var/jb/Library/LaunchDaemons/com.tiipeng.iagent.plist
@@ -73,7 +73,7 @@ ssh root@<iPad-IP> sh /tmp/iagent_src/install.sh
 
 ## Configuration
 
-Copy `config/config.yaml.example` to `~/.iagent/config.yaml` (or `$IAGENT_HOME/config.yaml`) and edit:
+Copy `config/config.json.example` to `$IAGENT_HOME/config.json` and edit:
 
 | Key | Default | Description |
 |---|---|---|
@@ -105,7 +105,7 @@ iAgent/
 ├── main.py              # Entry point
 ├── config/
 │   ├── settings.py      # Config loader
-│   └── config.yaml.example
+│   └── config.json.example
 ├── agent/
 │   ├── loop.py          # OpenAI tool-calling loop
 │   ├── memory.py        # SQLite conversation history

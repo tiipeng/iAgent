@@ -48,10 +48,12 @@ if [ ! -f "$IAGENT_HOME/.env" ]; then
     chmod 600 "$IAGENT_HOME/.env"
     echo "      Created $IAGENT_HOME/.env (edit your tokens before starting)"
 fi
-if [ ! -f "$IAGENT_HOME/config.yaml" ]; then
-    cp "$IAGENT_SRC/config/config.yaml.example" "$IAGENT_HOME/config.yaml"
-    echo "      Created $IAGENT_HOME/config.yaml (edit allowed_user_ids)"
+if [ ! -f "$IAGENT_HOME/config.json" ]; then
+    cp "$IAGENT_SRC/config/config.json.example" "$IAGENT_HOME/config.json"
+    echo "      Created $IAGENT_HOME/config.json (edit allowed_user_ids)"
 fi
+# Clean up legacy YAML config from older installs
+[ -f "$IAGENT_HOME/config.yaml" ] && rm -f "$IAGENT_HOME/config.yaml"
 
 # ── Create virtualenv ────────────────────────────────────────────────────
 echo "[2/5] Creating Python virtualenv..."
