@@ -188,27 +188,35 @@ async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 @_guard
 async def cmd_battery(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Try multiple sources; iOS jailbreak exposes battery via sysctl or a CLI
+    # iOS jailbreak: battery info lives in sysfs or via upower
     out = await _shell(
-        "sysctl -n hw.targettype 2>/dev/null; "
-        "cat /sys/class/power_supply/battery/capacity 2>/dev/null && "
-        "cat /sys/class/power_supply/battery/status 2>/dev/null || "
-        "pmset -g batt 2>/dev/null || "
-        "echo 'Battery info unavailable — install batteryinfo via Sileo'"
+        "( "
+        "  pct=$(cat /sys/class/power_supply/battery/capacity 2>/dev/null) && "
+        "  sta=$(cat /sys/class/power_supply/battery/status 2>/dev/null) && "
+        "  echo \"${pct}% — ${sta}\""
+        ") || "
+        "upower -i $(upower -e 2>/dev/null | grep battery | head -1) 2>/dev/null | "
+        "  grep -E 'percentage|state' | sed 's/^[ ]*//' || "
+        "echo 'Battery info unavailable. Try: apt install upower'"
     )
-    await update.message.reply_text(f"*Battery*\n`{out}`", parse_mode="Markdown")
+    await update.message.reply_text(f"*Battery*\n{out}", parse_mode="Markdown")
 
 
 @_guard
 async def cmd_wifi(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    ssid = await _shell(
-        "/var/jb/usr/bin/networksetup -getairportnetwork en0 2>/dev/null || "
-        "ipconfig getsummary en0 2>/dev/null | grep -i ssid || "
-        "echo 'SSID unavailable'"
+    # ipconfig getifaddr is available on iOS; SSID needs wifiman or similar
+    ip = await _shell(
+        "ipconfig getifaddr en0 2>/dev/null || "
+        "ifconfig en0 2>/dev/null | grep 'inet ' | awk '{print $2}'"
     )
-    ip = await _shell("ipconfig getifaddr en0 2>/dev/null || ifconfig en0 2>/dev/null | grep 'inet ' | awk '{print $2}'")
+    ssid = await _shell(
+        "/var/jb/usr/sbin/wifiman -I 2>/dev/null | grep SSID | head -1 || "
+        "cat /var/jb/var/mobile/Library/Preferences/com.apple.wifi.plist 2>/dev/null | "
+        "  strings | grep -A1 'SSIDString' | tail -1 || "
+        "echo 'SSID: (install wifiman via Sileo for SSID)'"
+    )
     await update.message.reply_text(
-        f"*Wi-Fi*\n{ssid}\nIP: `{ip or 'not connected'}`",
+        f"*Wi-Fi*\n{ssid.strip()}\nIP: `{ip.strip() or 'not connected'}`",
         parse_mode="Markdown",
     )
 
@@ -221,14 +229,17 @@ async def cmd_disk(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 @_guard
 async def cmd_ip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    out = await _shell("ifconfig 2>/dev/null | grep -E '(^[a-z]|inet )' | grep -v '127.0.0.1' | grep -v '::1'")
+    out = await _shell(
+        "ifconfig 2>/dev/null | grep -E '^[a-z]|inet ' | grep -v '127.0.0.1' | grep -v ' ::1'"
+    )
     await update.message.reply_text(f"*Network interfaces*\n```\n{out}\n```", parse_mode="Markdown")
 
 
 @_guard
 async def cmd_processes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    out = await _shell("ps aux 2>/dev/null | sort -rk3 | head -11 || ps -e -o pid,pcpu,pmem,comm | sort -rk2 | head -11")
-    await update.message.reply_text(f"*Top processes (by CPU)*\n```\n{out}\n```", parse_mode="Markdown")
+    # ps on iOS/Procursus supports BSD flags
+    out = await _shell("ps -eo pid,pcpu,pmem,comm 2>/dev/null | sort -t' ' -k2 -rn | head -11")
+    await update.message.reply_text(f"*Top processes (CPU%)*\n```\n{out}\n```", parse_mode="Markdown")
 
 
 @_guard

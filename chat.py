@@ -36,6 +36,30 @@ import tools.self_debug  # noqa: F401
 # A dedicated chat id so CLI conversations don't pollute Telegram history.
 CLI_CHAT_ID = -1
 
+# ── Readline tab-completion ───────────────────────────────────────────────
+
+_SLASH_COMMANDS = [
+    "/help", "/clear", "/skills", "/facts", "/tools",
+    "/model", "/status", "/battery", "/wifi", "/disk",
+    "/ip", "/processes", "/logs", "/restart", "/quit",
+]
+
+
+def _setup_readline() -> None:
+    try:
+        import readline
+        def _completer(text: str, state: int) -> str:
+            matches = [c for c in _SLASH_COMMANDS if c.startswith(text)]
+            return matches[state] if state < len(matches) else None
+        readline.set_completer(_completer)
+        # macOS uses libedit which needs a different binding
+        if "libedit" in (readline.__doc__ or ""):
+            readline.parse_and_bind("bind ^I rl_complete")
+        else:
+            readline.parse_and_bind("tab: complete")
+    except Exception:
+        pass  # readline not available — silently skip
+
 
 _CLI_HELP = """\
   /help       show this message
@@ -91,6 +115,7 @@ async def main() -> None:
         max_iterations=settings.max_iterations,
     )
 
+    _setup_readline()
     _print_banner(settings.openai_model)
 
     try:

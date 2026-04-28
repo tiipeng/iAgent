@@ -52,10 +52,15 @@ async def on_startup(app: Application) -> None:
     hb.start()
     app.bot_data["heartbeat"] = hb
 
-    from bot.handlers import BOT_COMMANDS
-    await app.bot.set_my_commands(BOT_COMMANDS)
-
     logger = logging.getLogger("iagent")
+
+    from bot.handlers import BOT_COMMANDS
+    try:
+        await app.bot.set_my_commands(BOT_COMMANDS)
+        logger.info("Registered %d bot commands with Telegram", len(BOT_COMMANDS))
+    except Exception as e:
+        logger.warning("set_my_commands failed: %s", e)
+
     logger.info("iAgent started. Bot: @%s", (await app.bot.get_me()).username)
 
 
