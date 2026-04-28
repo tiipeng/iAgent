@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
@@ -227,7 +228,7 @@ def check_logs() -> Result:
     if not files:
         return Result("logs", True, "log dir empty")
     latest = files[0]
-    age_s = int((Path.cwd().stat().st_mtime - latest.stat().st_mtime))
+    age_s = max(0, int(time.time() - latest.stat().st_mtime))
     # Just report freshness; don't grep for errors here (too noisy).
     return Result("logs", True, f"{latest.name} last modified {age_s}s ago")
 
