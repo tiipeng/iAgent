@@ -13,6 +13,7 @@ from agent.context import ChatContext
 from agent.memory import Memory
 import agent.loop as loop_module
 from config.settings import load_settings
+import tools.apt as apt_tool
 import tools.file_io as file_io_tool
 import tools.http_fetch as http_tool
 import tools.shell as shell_tool
@@ -21,6 +22,7 @@ import tools.shell as shell_tool
 import tools.shell  # noqa: F401
 import tools.file_io  # noqa: F401
 import tools.http_fetch  # noqa: F401
+import tools.apt  # noqa: F401
 
 # A dedicated chat id so CLI conversations don't pollute Telegram history.
 CLI_CHAT_ID = -1
@@ -40,6 +42,10 @@ async def main() -> None:
     settings = load_settings()
     shell_tool.configure(timeout=settings.shell_timeout, allowlist=settings.shell_allowlist)
     file_io_tool.configure(workspace_root=settings.workspace_root)
+    apt_tool.configure(
+        enabled=settings.apt_install_enabled,
+        allowlist=settings.apt_install_allowlist,
+    )
 
     memory = Memory(settings.db_path)
     await memory.init()

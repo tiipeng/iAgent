@@ -54,51 +54,16 @@ Open a terminal on the iPad (NewTerm 3, or SSH from your Mac with `ssh mobile@<i
 curl -fsSL https://raw.githubusercontent.com/tiipeng/iAgent/main/bootstrap.sh | sh
 ```
 
-That clones the repo to `/tmp/iagent_src`, runs `install.sh`, which:
+That clones the repo, sets up a virtualenv, installs every dependency from prebuilt wheels, then **launches an interactive setup wizard** that walks you through:
 
-1. Detects the highest available `python3.x` (≥ 3.9)
-2. Creates a virtualenv at `/var/jb/var/mobile/iagent/venv`
-3. Installs all dependencies from prebuilt wheels
-4. Copies the application to `/var/jb/var/mobile/iagent/code/`
-5. Renders the LaunchDaemon plist
-6. Prints the **four sudo commands** you run next to load the daemon
+1. Telegram bot token (validated against `getMe` before saving)
+2. OpenAI API key (validated against `/v1/models` before saving)
+3. Your numeric Telegram user ID
+4. Optional `SOUL.md` personality file
+5. Heartbeat interval (will activate when Phase 2.2 ships)
+6. LaunchDaemon install (the only sudo step, requires your password)
 
-Then add your secrets:
-
-```bash
-nano /var/jb/var/mobile/iagent/.env
-```
-
-```env
-TELEGRAM_TOKEN=7891234567:AAH...your-bot-token...
-OPENAI_API_KEY=sk-proj-...
-```
-
-```bash
-nano /var/jb/var/mobile/iagent/config.json
-```
-
-```json
-{
-  "openai_model": "gpt-4o",
-  "allowed_user_ids": [123456789],   // ← your Telegram user ID
-  "history_window": 20,
-  "max_iterations": 10,
-  "shell_timeout": 30,
-  "shell_allowlist": null
-}
-```
-
-Then load the daemon (root, one time):
-
-```bash
-sudo cp /var/jb/var/mobile/iagent/com.tiipeng.iagent.plist /var/jb/Library/LaunchDaemons/com.tiipeng.iagent.plist
-sudo chown root:wheel /var/jb/Library/LaunchDaemons/com.tiipeng.iagent.plist
-sudo chmod 644 /var/jb/Library/LaunchDaemons/com.tiipeng.iagent.plist
-sudo launchctl load /var/jb/Library/LaunchDaemons/com.tiipeng.iagent.plist
-```
-
-Verify:
+After it finishes:
 
 ```bash
 launchctl list | grep iagent
@@ -106,6 +71,22 @@ launchctl list | grep iagent
 ```
 
 Search for your bot's `@username` in Telegram, tap **Start** once, send a message. The agent replies.
+
+### Re-run the wizard any time
+
+```bash
+/var/jb/var/mobile/iagent/setup
+```
+
+The wizard is **non-destructive** — it detects existing values and offers to keep them. Use it to rotate a token, change the allowed user, or reload the daemon after editing config.
+
+### Diagnose problems with one command
+
+```bash
+/var/jb/var/mobile/iagent/doctor
+```
+
+Prints a green/red checklist (Python, venv, .env, config, Telegram token, OpenAI key, daemon status, log freshness, disk space, ca-certificates) with a fix suggestion for each red row. Also refreshes the capability registry that downstream tools query.
 
 ---
 
@@ -188,6 +169,8 @@ for _ in range(max_iterations):
 | `list_files` | List a directory inside the workspace |
 | `http_get` | Fetch a URL via HTTP GET (truncates response at 50KB) |
 | `http_post` | POST a JSON body to a URL |
+| `apt_search` | Search the Procursus repo for available Sileo packages |
+| `apt_install` | Install a Sileo package — **opt-in**, requires `apt_install_enabled: true` AND the package name in `apt_install_allowlist` in `config.json` |
 
 All tool handlers are pure async, registered with a `@register({"name": ..., "parameters": ...})` decorator that simultaneously stores both the OpenAI tool schema and the dispatch function. Adding a new tool is one decorator + one async function.
 
@@ -212,6 +195,9 @@ All tool handlers are pure async, registered with a `@register({"name": ..., "pa
 | `max_iterations` | `10` | Max tool-call rounds per user message |
 | `shell_timeout` | `30` | Seconds before a shell command is killed |
 | `shell_allowlist` | `null` | If set, only these commands may run via the `shell` tool |
+| `apt_install_enabled` | `false` | Master switch for the `apt_install` tool |
+| `apt_install_allowlist` | `[]` | Package names the agent is permitted to install via `apt_install` (e.g. `["pbcopy", "ca-certificates"]`) |
+| `heartbeat_interval` | `0` | Seconds between heartbeat self-prompts. `0` disables. Wired through; activated when Phase 2.2 ships |
 
 ---
 
@@ -221,6 +207,9 @@ All tool handlers are pure async, registered with a `@register({"name": ..., "pa
 iAgent/
 ├── main.py                       # Telegram bot entry point (LaunchDaemon target)
 ├── chat.py                       # Local CLI REPL — same agent, no Telegram
+├── setup.py                      # Interactive setup wizard (Phase 1.1)
+├── doctor.py                     # Read-only health check (Phase 1.2)
+├── capabilities.py               # Capability registry — installed packages, shortcuts (Phase 1.4)
 ├── bootstrap.sh                  # On-device curl|sh installer
 ├── install.sh                    # The actual installer (called by bootstrap)
 ├── com.tiipeng.iagent.plist      # LaunchDaemon definition (KeepAlive, sudo install)
@@ -236,7 +225,8 @@ iAgent/
 │   ├── registry.py               # @register decorator + async dispatch
 │   ├── shell.py                  # asyncio subprocess (no fork)
 │   ├── file_io.py                # aiofiles, sandboxed to workspace_root
-│   └── http_fetch.py             # aiohttp GET/POST
+│   ├── http_fetch.py             # aiohttp GET/POST
+│   └── apt.py                    # apt_install / apt_search (Phase 1.3, opt-in)
 ├── bot/
 │   ├── handlers.py               # /start, /clear, MessageHandler
 │   └── middleware.py             # allowed_user_ids gate
@@ -358,6 +348,14 @@ Background processes get killed under memory pressure. `KeepAlive=true` in the L
 ---
 
 ## Troubleshooting
+
+**First, run `doctor`.** It does most of the work for you:
+
+```bash
+/var/jb/var/mobile/iagent/doctor
+```
+
+Then, if needed:
 
 ### `launchctl list` shows `-  -9  com.tiipeng.iagent`
 

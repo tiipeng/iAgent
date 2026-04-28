@@ -37,6 +37,13 @@ class Settings:
     shell_timeout: int = 30
     shell_allowlist: Optional[list[str]] = None  # None = allow all
 
+    # apt_install gateway (Phase 1.3) — opt-in
+    apt_install_enabled: bool = False
+    apt_install_allowlist: list[str] = field(default_factory=list)
+
+    # heartbeat (Phase 2.2) — 0 = disabled
+    heartbeat_interval: int = 0
+
     def __post_init__(self) -> None:
         self.data_dir = Path(self.data_dir)
         self.workspace_root = Path(self.workspace_root)
@@ -94,4 +101,7 @@ def load_settings(
         max_iterations=int(cfg.get("max_iterations", 10)),
         shell_timeout=int(cfg.get("shell_timeout", 30)),
         shell_allowlist=cfg.get("shell_allowlist", None),
+        apt_install_enabled=bool(cfg.get("apt_install_enabled", False)),
+        apt_install_allowlist=list(cfg.get("apt_install_allowlist", [])),
+        heartbeat_interval=int(cfg.get("heartbeat_interval", 0)),
     )

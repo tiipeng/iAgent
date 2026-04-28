@@ -72,6 +72,9 @@ echo "      Dependencies installed."
 echo "[4/5] Installing application code to $IAGENT_CODE ..."
 cp -R "$IAGENT_SRC/main.py" \
       "$IAGENT_SRC/chat.py" \
+      "$IAGENT_SRC/setup.py" \
+      "$IAGENT_SRC/doctor.py" \
+      "$IAGENT_SRC/capabilities.py" \
       "$IAGENT_SRC/config" \
       "$IAGENT_SRC/agent" \
       "$IAGENT_SRC/tools" \
@@ -79,14 +82,21 @@ cp -R "$IAGENT_SRC/main.py" \
       "$IAGENT_SRC/utils" \
       "$IAGENT_CODE/"
 
-# Convenience launcher in IAGENT_HOME so user can just run ~/iagent/chat
-cat > "$IAGENT_HOME/chat" <<'EOF'
+# Render thin launcher shims so the user can run ~/iagent/{chat,setup,doctor}
+_render_launcher() {
+    local name="$1"
+    local script="$2"
+    cat > "$IAGENT_HOME/$name" <<EOF
 #!/var/jb/bin/sh
 export IAGENT_HOME=/var/jb/var/mobile/iagent
 export SSL_CERT_FILE=/var/jb/etc/ssl/cert.pem
-exec /var/jb/var/mobile/iagent/venv/bin/python /var/jb/var/mobile/iagent/code/chat.py "$@"
+exec /var/jb/var/mobile/iagent/venv/bin/python /var/jb/var/mobile/iagent/code/$script "\$@"
 EOF
-chmod +x "$IAGENT_HOME/chat"
+    chmod +x "$IAGENT_HOME/$name"
+}
+_render_launcher chat   chat.py
+_render_launcher setup  setup.py
+_render_launcher doctor doctor.py
 
 # ── Render the LaunchDaemon plist with current paths ────────────────────
 echo "[5/5] Rendering LaunchDaemon plist..."
@@ -111,29 +121,29 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo " iAgent code installed to $IAGENT_CODE"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "1. Edit secrets:   nano $IAGENT_HOME/.env"
-echo "                    → TELEGRAM_TOKEN and OPENAI_API_KEY"
-echo ""
-echo "2. Edit allowlist: nano $IAGENT_HOME/config.json"
-echo "                    → put your Telegram user ID under allowed_user_ids"
-echo ""
 
-if [ "$INSTALLED" -eq 1 ]; then
-    echo "3. Daemon already loaded as root. Restart it after editing:"
-    echo "     launchctl unload $PLIST_DEST"
-    echo "     launchctl load   $PLIST_DEST"
+# First-run? Auto-launch the setup wizard. It validates tokens, writes
+# .env / config.json, and offers to install the LaunchDaemon.
+if [ ! -f "$IAGENT_HOME/.env" ] || ! grep -q "^TELEGRAM_TOKEN=." "$IAGENT_HOME/.env" 2>/dev/null; then
+    echo "First-time install — launching setup wizard…"
+    echo ""
+    "$IAGENT_HOME/setup"
 else
-    echo "3. Install the LaunchDaemon (needs root). Copy/paste:"
+    echo "Existing config detected. To reconfigure, run:  $IAGENT_HOME/setup"
     echo ""
-    echo "     sudo cp $RENDERED_PLIST $PLIST_DEST"
-    echo "     sudo chown root:wheel $PLIST_DEST"
-    echo "     sudo chmod 644 $PLIST_DEST"
-    echo "     sudo launchctl load $PLIST_DEST"
-    echo ""
-    echo "   (If 'sudo' is missing, install it from Sileo first.)"
+    if [ "$INSTALLED" -eq 1 ]; then
+        echo "Daemon reloaded with the latest code."
+    else
+        echo "Reload the daemon to pick up code changes:"
+        echo "  sudo launchctl unload $PLIST_DEST"
+        echo "  sudo launchctl load   $PLIST_DEST"
+    fi
 fi
 
 echo ""
-echo "Logs:      tail -f $IAGENT_HOME/logs/stderr.log"
-echo "Status:    launchctl list | grep iagent"
-echo "CLI chat:  $IAGENT_HOME/chat        # interactive REPL for debugging"
+echo "Useful commands:"
+echo "  Setup wizard:   $IAGENT_HOME/setup       # re-runnable, never destructive"
+echo "  Health check:   $IAGENT_HOME/doctor      # diagnose any problem"
+echo "  CLI chat:       $IAGENT_HOME/chat        # interactive REPL for debugging"
+echo "  Tail logs:      tail -f $IAGENT_HOME/logs/stderr.log"
+echo "  Daemon status:  launchctl list | grep iagent"

@@ -61,6 +61,10 @@ def main() -> None:
         allowlist=settings.shell_allowlist,
     )
     file_io_tool.configure(workspace_root=settings.workspace_root)
+    apt_tool.configure(
+        enabled=settings.apt_install_enabled,
+        allowlist=settings.apt_install_allowlist,
+    )
 
     memory = Memory(settings.db_path)
     openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
