@@ -6,13 +6,13 @@
     <key>Label</key>
     <string>com.tiipeng.iagent</string>
 
-    <!-- Single-shot tick: long-poll Telegram for ~25 s, process any
-         messages, exit. launchd wakes us again every 30 s. iOS Jetsam
-         can't kill what isn't running, so the bot survives indefinitely. -->
+    <!-- launchd spawns the wrapper as root; the wrapper drops to mobile
+         via `sudo -u mobile` before exec'ing python. iOS kernel SIGKILLs
+         system-domain root daemons that try to do TLS network I/O, but
+         the same Python script runs fine when launched as mobile. -->
     <key>ProgramArguments</key>
     <array>
-        <string>/var/jb/var/mobile/iagent/venv/bin/python</string>
-        <string>/var/jb/var/mobile/iagent/code/tick.py</string>
+        <string>/var/jb/var/mobile/iagent/code/daemon_wrapper.sh</string>
     </array>
 
     <key>EnvironmentVariables</key>
@@ -38,19 +38,10 @@
     <key>StandardErrorPath</key>
     <string>/var/jb/var/mobile/iagent/logs/stderr.log</string>
 
-    <!-- Run once at load (catches anything queued while daemon was down)
-         and then every 30 s thereafter. With LONG_POLL_TIMEOUT=25 in
-         tick.py, the bot wakes ~5 s before the next tick — so apparent
-         response latency is near zero when active, capped at 30 s when
-         idle. Crucially: the process exits between ticks, so RAM is
-         released and Jetsam has nothing to hunt. -->
     <key>RunAtLoad</key>
     <true/>
     <key>StartInterval</key>
     <integer>30</integer>
-
-    <!-- If a tick takes longer than 60 s for any reason, kill it so the
-         next interval can start cleanly. -->
     <key>ExitTimeOut</key>
     <integer>60</integer>
 </dict>

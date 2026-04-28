@@ -76,6 +76,7 @@ cp -R "$IAGENT_SRC/main.py" \
       "$IAGENT_SRC/setup.py" \
       "$IAGENT_SRC/doctor.py" \
       "$IAGENT_SRC/capabilities.py" \
+      "$IAGENT_SRC/daemon_wrapper.sh" \
       "$IAGENT_SRC/config" \
       "$IAGENT_SRC/agent" \
       "$IAGENT_SRC/tools" \
@@ -98,6 +99,9 @@ EOF
 _render_launcher chat   chat.py
 _render_launcher setup  setup.py
 _render_launcher doctor doctor.py
+
+# The daemon wrapper must be executable for launchd to invoke it.
+chmod +x "$IAGENT_CODE/daemon_wrapper.sh"
 
 # ── Render the LaunchDaemon plist with current paths ────────────────────
 echo "[5/5] Rendering LaunchDaemon plist..."
