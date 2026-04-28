@@ -8,9 +8,9 @@ set -e
 export IAGENT_HOME=/var/jb/var/mobile/iagent
 export SSL_CERT_FILE=/var/jb/etc/ssl/cert.pem
 export PYTHONUNBUFFERED=1
-# tmux refuses to start without a UTF-8 locale; iOS defaults to US-ASCII.
-export LC_ALL=en_US.UTF-8
-export LANG=en_US.UTF-8
+# iOS locale DB is sparse — don't set LC_ALL/LANG globally because tmux
+# validates them at startup and rejects anything not in the device's locale DB.
+# We pass them inline to each command that actually needs UTF-8 output.
 
 PY="$IAGENT_HOME/venv/bin/python"
 CODE="$IAGENT_HOME/code"
@@ -63,7 +63,7 @@ case "$cmd" in
         fi
         echo "Starting iAgent in tmux session '$SESSION'…"
         tmux new-session -d -s "$SESSION" \
-            "exec '$PY' '$CODE/main.py'"
+            "LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 exec '$PY' '$CODE/main.py'"
         sleep 2
         if _have_session; then
             echo "✓ iAgent running."
@@ -120,11 +120,11 @@ case "$cmd" in
 
     fg|foreground|run-fg)
         echo "Running iAgent in foreground (Ctrl+C to stop)…"
-        exec "$PY" "$CODE/main.py"
+        LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 exec "$PY" "$CODE/main.py"
         ;;
 
     chat)
-        exec "$PY" "$CODE/chat.py"
+        LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 exec "$PY" "$CODE/chat.py"
         ;;
 
     setup)
