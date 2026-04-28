@@ -71,6 +71,7 @@ echo "      Dependencies installed."
 # ── Copy application code ────────────────────────────────────────────────
 echo "[4/5] Installing application code to $IAGENT_CODE ..."
 cp -R "$IAGENT_SRC/main.py" \
+      "$IAGENT_SRC/tick.py" \
       "$IAGENT_SRC/chat.py" \
       "$IAGENT_SRC/setup.py" \
       "$IAGENT_SRC/doctor.py" \

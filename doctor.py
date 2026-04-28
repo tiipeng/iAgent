@@ -190,6 +190,10 @@ def check_openai_key() -> Result:
 
 
 def check_daemon() -> Result:
+    """In tick-mode (StartInterval), the daemon is mostly NOT running between
+    polls. 'PID=-' is normal as long as the last exit code is 0 and the tick
+    is actually doing work (offset file or log advancing). A non-zero exit
+    code is the crash signal."""
     if not PLIST_DEST.exists():
         return Result(
             "daemon",
@@ -203,14 +207,17 @@ def check_daemon() -> Result:
             if "com.tiipeng.iagent" in line:
                 parts = line.split()
                 pid, exit_code = parts[0], parts[1]
-                if pid == "-" and exit_code != "0":
-                    return Result(
-                        "daemon",
-                        False,
-                        f"loaded but crashing (last exit {exit_code})",
-                        "tail -f $IAGENT_HOME/logs/stderr.log to see the traceback",
-                    )
-                return Result("daemon", True, f"loaded — PID {pid}, exit {exit_code}")
+                if pid != "-":
+                    return Result("daemon", True, f"running NOW — PID {pid}")
+                # PID=- means between ticks. Exit 0 = healthy idle.
+                if exit_code in ("0", "-"):
+                    return Result("daemon", True, "idle between ticks (exit 0)")
+                return Result(
+                    "daemon",
+                    False,
+                    f"crashing (last exit {exit_code})",
+                    "tail -f $IAGENT_HOME/logs/stderr.log to see the traceback",
+                )
         return Result(
             "daemon",
             False,
