@@ -9,6 +9,7 @@ import aiohttp
 from openai import AsyncOpenAI
 from telegram.ext import Application, ApplicationBuilder
 
+from agent.heartbeat import Heartbeat
 from agent.memory import Memory
 from bot.handlers import register_handlers
 from config.settings import load_settings
@@ -23,6 +24,11 @@ import tools.shell  # noqa: F401
 import tools.file_io  # noqa: F401
 import tools.http_fetch  # noqa: F401
 import tools.apt  # noqa: F401
+import tools.skills  # noqa: F401
+import tools.shortcuts  # noqa: F401
+import tools.clipboard  # noqa: F401
+import tools.notify  # noqa: F401
+import tools.facts  # noqa: F401
 
 
 async def on_startup(app: Application) -> None:
@@ -35,11 +41,22 @@ async def on_startup(app: Application) -> None:
     app.bot_data["aiohttp_session"] = session
     http_tool.set_session(session)
 
+    # Start heartbeat (no-op when interval == 0)
+    from agent.heartbeat import DEFAULT_PROMPT as _DEFAULT_HB_PROMPT
+    hb_prompt = settings.heartbeat_prompt or _DEFAULT_HB_PROMPT
+    hb = Heartbeat(app, interval=settings.heartbeat_interval, prompt=hb_prompt)
+    hb.start()
+    app.bot_data["heartbeat"] = hb
+
     logger = logging.getLogger("iagent")
     logger.info("iAgent started. Bot: @%s", (await app.bot.get_me()).username)
 
 
 async def on_shutdown(app: Application) -> None:
+    hb: Heartbeat = app.bot_data.get("heartbeat")
+    if hb:
+        hb.stop()
+
     memory: Memory = app.bot_data["memory"]
     await memory.close()
 

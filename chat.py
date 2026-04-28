@@ -23,6 +23,11 @@ import tools.shell  # noqa: F401
 import tools.file_io  # noqa: F401
 import tools.http_fetch  # noqa: F401
 import tools.apt  # noqa: F401
+import tools.skills  # noqa: F401
+import tools.shortcuts  # noqa: F401
+import tools.clipboard  # noqa: F401
+import tools.notify  # noqa: F401
+import tools.facts  # noqa: F401
 
 # A dedicated chat id so CLI conversations don't pollute Telegram history.
 CLI_CHAT_ID = -1

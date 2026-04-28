@@ -43,6 +43,7 @@ class Settings:
 
     # heartbeat (Phase 2.2) — 0 = disabled
     heartbeat_interval: int = 0
+    heartbeat_prompt: str = ""
 
     def __post_init__(self) -> None:
         self.data_dir = Path(self.data_dir)
@@ -104,4 +105,5 @@ def load_settings(
         apt_install_enabled=bool(cfg.get("apt_install_enabled", False)),
         apt_install_allowlist=list(cfg.get("apt_install_allowlist", [])),
         heartbeat_interval=int(cfg.get("heartbeat_interval", 0)),
+        heartbeat_prompt=str(cfg.get("heartbeat_prompt", "")),
     )

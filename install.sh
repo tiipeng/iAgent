@@ -78,6 +78,7 @@ cp -R "$IAGENT_SRC/main.py" \
       "$IAGENT_SRC/tools" \
       "$IAGENT_SRC/bot" \
       "$IAGENT_SRC/utils" \
+      "$IAGENT_SRC/skills" \
       "$IAGENT_CODE/"
 
 # Drop the unified `iagent` command at $IAGENT_HOME/iagent.
