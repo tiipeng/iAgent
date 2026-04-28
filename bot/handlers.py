@@ -38,6 +38,7 @@ BOT_COMMANDS = [
     BotCommand("processes", "Top 10 processes by CPU usage"),
     BotCommand("logs",      "Last 30 log lines"),
     BotCommand("restart",   "Restart the bot (back in ~5 s)"),
+    BotCommand("mcp",       "List connected MCP servers and their tools"),
 ]
 
 
@@ -282,6 +283,24 @@ async def cmd_logs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 @_guard
+async def cmd_mcp(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    from tools import mcp_bridge
+    if not mcp_bridge._clients:
+        await update.message.reply_text(
+            "No MCP servers configured. Add to config.json under `mcp_servers`."
+        )
+        return
+    lines = ["*MCP servers connected:*"]
+    for name, client in mcp_bridge._clients.items():
+        lines.append(f"\n_{name}_  ({len(client.tools)} tools)")
+        for tool in client.tools[:20]:
+            lines.append(f"  • {name}_{tool.get('name')} — {tool.get('description', '')[:80]}")
+        if len(client.tools) > 20:
+            lines.append(f"  …and {len(client.tools) - 20} more")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+@_guard
 async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Restarting iAgent in 3 s… I'll be back shortly.")
 
@@ -369,4 +388,5 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("processes", cmd_processes))
     app.add_handler(CommandHandler("logs",      cmd_logs))
     app.add_handler(CommandHandler("restart",   cmd_restart))
+    app.add_handler(CommandHandler("mcp",       cmd_mcp))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

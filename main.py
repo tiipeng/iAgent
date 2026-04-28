@@ -54,6 +54,11 @@ async def on_startup(app: Application) -> None:
     hb.start()
     app.bot_data["heartbeat"] = hb
 
+    # Start any configured MCP servers — their tools get auto-registered
+    if settings.mcp_servers:
+        from tools import mcp_bridge
+        await mcp_bridge.start_servers(settings.mcp_servers)
+
     logger = logging.getLogger("iagent")
 
     from bot.handlers import BOT_COMMANDS
@@ -70,6 +75,9 @@ async def on_shutdown(app: Application) -> None:
     hb: Heartbeat = app.bot_data.get("heartbeat")
     if hb:
         hb.stop()
+
+    from tools import mcp_bridge
+    await mcp_bridge.stop_all()
 
     memory: Memory = app.bot_data["memory"]
     await memory.close()

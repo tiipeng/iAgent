@@ -104,6 +104,10 @@ async def main() -> None:
         model=settings.openai_model,
     )
 
+    if settings.mcp_servers:
+        from tools import mcp_bridge
+        await mcp_bridge.start_servers(settings.mcp_servers)
+
     memory = Memory(settings.db_path)
     await memory.init()
 

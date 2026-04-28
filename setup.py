@@ -257,7 +257,9 @@ def main() -> int:
             "upower", "wifiman", "ncurses", "tmux", "openssh", "curl", "wget",
             "ffmpeg", "imagemagick", "screencapture-ios", "nano", "vim",
             "uikittools", "uikittools-ng", "activator",
+            "com.witchan.ios-mcp",
         ]),
+        "mcp_servers": existing_cfg.get("mcp_servers", []),
     }
     write_config(cfg)
     ok(f"wrote {CONFIG_PATH}")

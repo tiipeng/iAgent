@@ -45,6 +45,9 @@ class Settings:
     heartbeat_interval: int = 0
     heartbeat_prompt: str = ""
 
+    # MCP servers — list of {name, command, args} to spawn at startup
+    mcp_servers: list = field(default_factory=list)
+
     def __post_init__(self) -> None:
         self.data_dir = Path(self.data_dir)
         self.workspace_root = Path(self.workspace_root)
@@ -106,4 +109,5 @@ def load_settings(
         apt_install_allowlist=list(cfg.get("apt_install_allowlist", [])),
         heartbeat_interval=int(cfg.get("heartbeat_interval", 0)),
         heartbeat_prompt=str(cfg.get("heartbeat_prompt", "")),
+        mcp_servers=list(cfg.get("mcp_servers", [])),
     )

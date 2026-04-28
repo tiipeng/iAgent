@@ -21,12 +21,18 @@
     "shortcuts-cli", "pbcopy", "pbpaste", "ca-certificates",
     "upower", "wifiman", "ncurses", "tmux", "openssh", "curl", "wget",
     "ffmpeg", "imagemagick", "screencapture-ios", "nano", "vim",
-    "uikittools", "uikittools-ng", "activator"
+    "uikittools", "uikittools-ng", "activator",
+    "com.witchan.ios-mcp"
   ],
 
   "_comment_heartbeat": "Phase 2.2: interval in seconds between heartbeat ticks (0 = disabled).",
   "heartbeat_interval": 0,
 
   "_comment_heartbeat_prompt": "Optional: customise the heartbeat self-prompt.",
-  "heartbeat_prompt": ""
+  "heartbeat_prompt": "",
+
+  "_comment_mcp": "MCP servers to spawn at startup. Their tools are auto-registered, prefixed with `name_`. Add ios-mcp via Sileo: sudo apt install com.witchan.ios-mcp",
+  "mcp_servers": [
+    {"name": "ios", "command": "/var/jb/usr/bin/ios-mcp"}
+  ]
 }
