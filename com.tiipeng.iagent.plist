@@ -6,12 +6,16 @@
     <key>Label</key>
     <string>com.tiipeng.iagent</string>
 
-    <!-- launchd spawns the wrapper as root; the wrapper drops to mobile
-         via `sudo -u mobile` before exec'ing python. iOS kernel SIGKILLs
-         system-domain root daemons that try to do TLS network I/O, but
-         the same Python script runs fine when launched as mobile. -->
+    <!-- launchd invokes /bin/sh (symlinked through to Procursus's sh on
+         rootless dopamine) explicitly, with the wrapper script as its
+         argument. Going through `sh script.sh` instead of relying on
+         the script's shebang avoids EX_CONFIG (78) from launchd's
+         stricter exec policy. The wrapper itself drops privileges to
+         the mobile user before exec'ing python — root-launched daemons
+         get SIGKILL'd by iOS AMFI when they touch the network. -->
     <key>ProgramArguments</key>
     <array>
+        <string>/bin/sh</string>
         <string>/var/jb/var/mobile/iagent/code/daemon_wrapper.sh</string>
     </array>
 
