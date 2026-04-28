@@ -25,17 +25,14 @@ iAgent setup wizard
       → Saved to allowed_user_ids
 [4/6] Personality / SOUL.md — open editor now? [y/N]: y
       (opens nano on $IAGENT_HOME/SOUL.md with a template)
-[5/6] Heartbeat interval in minutes (0 = disabled) [0]:
-[6/6] Install LaunchDaemon now (requires sudo)? [Y/n]: y
-      → sudo cp / chown / chmod / launchctl load …
-      → Daemon loaded. PID 6789.
+[5/5] Heartbeat interval in minutes (0 = disabled) [0]:
 
-✓ Setup complete. Send /start to your bot in Telegram.
+✓ Setup complete. Run `iagent` to start the bot. Then send /start to it in Telegram.
 ```
 
 **Why:**
 - Deletes the manual nano steps from the README.
-- Validates tokens / API keys *before* writing them, instead of failing at daemon startup.
+- Validates tokens / API keys *before* writing them, instead of failing at bot startup.
 - One canonical happy path, with sensible defaults.
 - Makes re-running safe — detects existing values and offers to keep them.
 
@@ -64,7 +61,7 @@ $ iagent doctor
 ✓ config.json valid, allowed_user_ids has 1 entry
 ✓ Telegram token verified — bot @your_iagent_bot
 ✓ OpenAI key verified — gpt-4o accessible
-✓ LaunchDaemon loaded, PID 6789, exit 0
+✓ bot: running in tmux session 'iagent' (pid=6789)
 ✓ Last log entry 2 minutes ago, no errors
 ✓ Disk space: 8.3 GB free
 ✗ ca-certificates: not installed (TLS may fail)
@@ -148,7 +145,7 @@ Today iAgent is a Q&A bot: it only thinks when you message it. These three featu
 **What:** An asyncio background task that wakes the agent every N minutes (configurable, default 30) with a self-prompt: *"It's HH:MM. Anything you should do, check, or remember? If not, say 'nothing'."* Replies are persisted to memory but not pushed to Telegram unless the agent explicitly calls a `notify` tool.
 
 **Why:** This is what separates a bot from an agent. With heartbeats the agent can:
-- Check on running processes ("is the daemon I started still alive?")
+- Check on running processes ("is that build I started still alive?")
 - Watch a value over time ("the battery dropped from 80% to 30% in an hour — flag this")
 - Run scheduled errands ("every weekday at 09:00, summarise yesterday's notes")
 - Update a journal file
@@ -287,13 +284,13 @@ These features turn iAgent from "a tool that calls tools" into "an agent that gr
 
 ### 4.3 Self-debugging ⬜
 
-**What:** When a tool errors out, the agent can read its own logs (`/var/jb/var/mobile/iagent/logs/stderr.log`), grep for the error, and propose a fix — possibly even a diff against its own source code. The user approves, the agent writes the file, the daemon restarts.
+**What:** When a tool errors out, the agent can read its own logs (`/var/jb/var/mobile/iagent/logs/stderr.log`), grep for the error, and propose a fix — possibly even a diff against its own source code. The user approves, the agent writes the file, the bot restarts (`iagent restart`).
 
 **Why:** Closing the loop on iteration speed.
 
 **Scope:** Significant. Needs:
 - A "self" tool family that scopes file ops to `code/`
-- A `restart_daemon` tool (probably wraps `launchctl unload && launchctl load`)
+- A `restart_self` tool (wraps `iagent restart`)
 - A safety net — never run unattended; always require user approval before writing to `code/`
 
 **Risks:** This is the "the AI rewrote itself and broke" risk. Always require explicit approval. Always keep a known-good copy in git so the user can `git reset --hard origin/main && bootstrap.sh` to recover.

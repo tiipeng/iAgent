@@ -26,7 +26,6 @@ ENV_PATH = IAGENT_HOME / ".env"
 CONFIG_PATH = IAGENT_HOME / "config.json"
 LOG_DIR = IAGENT_HOME / "logs"
 VENV_PYTHON = IAGENT_HOME / "venv" / "bin" / "python"
-PLIST_DEST = Path("/var/jb/Library/LaunchDaemons/com.tiipeng.iagent.plist")
 
 GREEN = "\033[1;32m"
 RED = "\033[1;31m"
@@ -189,43 +188,43 @@ def check_openai_key() -> Result:
         return Result("openai", False, f"network error: {e}")
 
 
-def check_daemon() -> Result:
-    """In tick-mode (StartInterval), the daemon is mostly NOT running between
-    polls. 'PID=-' is normal as long as the last exit code is 0 and the tick
-    is actually doing work (offset file or log advancing). A non-zero exit
-    code is the crash signal."""
-    if not PLIST_DEST.exists():
+def check_tmux() -> Result:
+    """iAgent runs inside a tmux session named 'iagent'. iOS aggressively
+    kills system-domain LaunchDaemons that touch the network, so the
+    canonical way to keep the bot alive is `iagent` (which spawns tmux).
+    """
+    if not shutil.which("tmux"):
         return Result(
-            "daemon",
+            "tmux",
             False,
-            "LaunchDaemon plist not installed",
-            f"run: {IAGENT_HOME}/setup  (and approve the daemon install step)",
+            "tmux is not installed",
+            "sudo apt install tmux",
         )
     try:
-        r = subprocess.run(["launchctl", "list"], capture_output=True, text=True, check=False)
-        for line in r.stdout.splitlines():
-            if "com.tiipeng.iagent" in line:
-                parts = line.split()
-                pid, exit_code = parts[0], parts[1]
-                if pid != "-":
-                    return Result("daemon", True, f"running NOW — PID {pid}")
-                # PID=- means between ticks. Exit 0 = healthy idle.
-                if exit_code in ("0", "-"):
-                    return Result("daemon", True, "idle between ticks (exit 0)")
-                return Result(
-                    "daemon",
-                    False,
-                    f"crashing (last exit {exit_code})",
-                    "tail -f $IAGENT_HOME/logs/stderr.log to see the traceback",
-                )
+        r = subprocess.run(
+            ["tmux", "has-session", "-t", "iagent"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if r.returncode == 0:
+            # Get the pane PID for context
+            p = subprocess.run(
+                ["tmux", "list-panes", "-t", "iagent", "-F", "#{pane_pid}"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            pid = p.stdout.strip().splitlines()[0] if p.stdout.strip() else "?"
+            return Result("bot", True, f"running in tmux session 'iagent' (pid={pid})")
         return Result(
-            "daemon",
+            "bot",
             False,
-            "plist installed but not loaded",
-            f"sudo launchctl load {PLIST_DEST}",
+            "not running",
+            "start with:  iagent",
         )
     except Exception as e:
-        return Result("daemon", False, str(e))
+        return Result("bot", False, str(e))
 
 
 def check_logs() -> Result:
@@ -276,7 +275,7 @@ CHECKS: list[Callable[[], Result]] = [
     check_config,
     check_telegram_token,
     check_openai_key,
-    check_daemon,
+    check_tmux,
     check_logs,
     check_disk,
     check_ca_certs,

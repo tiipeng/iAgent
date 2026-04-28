@@ -13,18 +13,7 @@ Both `openclaw` and `hermes-agent` failed to install on a jailbroken iPad:
 - **openclaw** — its installer demands Homebrew, which on iOS thinks the user must be in the macOS `admin` group. Dead end.
 - **hermes-agent** — `pyproject.toml` declares `requires-python >= 3.11`, but Procursus ships only Python 3.9.9. Even with `--no-deps`, transitive deps like `jiter` and `tokenizers` need a Rust toolchain that doesn't recognise the iPad's machine triple (`iPad11,3`).
 
-iAgent is the same idea, rebuilt around what actually works on the device:
-
-| Constraint | iAgent's answer |
-|---|---|
-| Python 3.9.9 (Procursus default) | All code is Python 3.9-compatible (`from __future__ import annotations` + `typing.Optional`/`Union`) |
-| No Rust toolchain | Pin `openai<1.32` (no `jiter`) and `pydantic<2` (no `pydantic-core`) — both pure-Python paths |
-| No C compiler by default | Avoid PyYAML — config is JSON (stdlib) |
-| iOS forbids `fork()` | All subprocesses use `asyncio.create_subprocess_exec` (= `posix_spawn`) |
-| `mobile` user can't write to `/var/jb/usr/local/lib/` | Code lives at `/var/jb/var/mobile/iagent/code/`, daemon plist install is the only sudo step |
-| Procursus venv quirk drops `proxies` from httpx | Pin `httpx<0.28` (compat with openai 1.31) |
-
-If anything else in the Python ecosystem decides to require Rust, the fix pattern is the same: pin to the last pre-Rust release.
+iAgent is the same idea, rebuilt around what actually works on the device.
 
 ---
 
@@ -35,9 +24,9 @@ If anything else in the Python ecosystem decides to require Rust, the fix patter
 
 **Sileo packages** (install from the default Procursus repo)
 - `python3` (3.9.9 — bundled with Dopamine)
+- `tmux` ← required for `iagent` to keep the bot alive in a session
 - `git`, `curl`, `ca-certificates` — usually present
-- `openssh` — recommended for editing `.env` and `config.json` from a Mac
-- `sudo` — needed once to install the LaunchDaemon
+- `openssh` — recommended for editing config from a Mac
 
 **Accounts you need**
 - A [Telegram bot token](https://t.me/BotFather) (chat with `@BotFather` → `/newbot`)
@@ -51,42 +40,49 @@ If anything else in the Python ecosystem decides to require Rust, the fix patter
 Open a terminal on the iPad (NewTerm 3, or SSH from your Mac with `ssh mobile@<iPad-IP>`) and run:
 
 ```bash
+sudo apt install tmux       # one-time, if you haven't installed tmux before
 curl -fsSL https://raw.githubusercontent.com/tiipeng/iAgent/main/bootstrap.sh | sh
 ```
 
-That clones the repo, sets up a virtualenv, installs every dependency from prebuilt wheels, then **launches an interactive setup wizard** that walks you through:
+The bootstrap clones the repo, sets up a virtualenv, installs every dependency from prebuilt wheels, then **launches an interactive setup wizard** that walks you through:
 
 1. Telegram bot token (validated against `getMe` before saving)
 2. OpenAI API key (validated against `/v1/models` before saving)
 3. Your numeric Telegram user ID
 4. Optional `SOUL.md` personality file
-5. Heartbeat interval (will activate when Phase 2.2 ships)
-6. LaunchDaemon install (the only sudo step, requires your password)
+5. Heartbeat interval (saved for when Phase 2.2 ships)
 
-After it finishes:
-
-```bash
-launchctl list | grep iagent
-# expect:  <PID>   0   com.tiipeng.iagent
-```
-
-Search for your bot's `@username` in Telegram, tap **Start** once, send a message. The agent replies.
-
-### Re-run the wizard any time
+After it finishes, **open a new shell** (or `source ~/.zshrc`), and:
 
 ```bash
-/var/jb/var/mobile/iagent/setup
+iagent              # start the bot in a tmux session
 ```
 
-The wizard is **non-destructive** — it detects existing values and offers to keep them. Use it to rotate a token, change the allowed user, or reload the daemon after editing config.
+That's it. The bot runs in the background until you stop it or the iPad reboots. Search for your bot's `@username` in Telegram, tap **Start** once, send a message.
 
-### Diagnose problems with one command
+---
 
-```bash
-/var/jb/var/mobile/iagent/doctor
-```
+## The `iagent` command — daily driver
 
-Prints a green/red checklist (Python, venv, .env, config, Telegram token, OpenAI key, daemon status, log freshness, disk space, ca-certificates) with a fix suggestion for each red row. Also refreshes the capability registry that downstream tools query.
+`iagent` is the single entry point for everything:
+
+| Command | What it does |
+|---|---|
+| `iagent` (or `iagent start`) | Start the bot in a tmux session named `iagent`. If already running, prints status. |
+| `iagent attach` | Attach to the running tmux session. **Detach again with `Ctrl+B` then `D`** (don't `Ctrl+C` — that kills the bot). |
+| `iagent stop` | Kill the tmux session. |
+| `iagent restart` | Stop + start. |
+| `iagent status` | Print whether the bot is running. |
+| `iagent logs` | Tail the log files (`Ctrl+C` to exit). |
+| `iagent fg` | Run the bot in the foreground in this shell. Useful for debugging — you see the traceback live. |
+| `iagent chat` | Open the local CLI REPL (offline from Telegram, separate from the bot). |
+| `iagent setup` | Re-run the interactive setup wizard. |
+| `iagent doctor` | Run the health check. |
+| `iagent help` | Full help. |
+
+**The bot survives** SSH disconnect, terminal close, and login session changes. It dies on iPad reboot or under heavy memory pressure (rare). After a reboot, just SSH back in and run `iagent`.
+
+> **Why no LaunchDaemon?** I tried. Multiple times. iOS aggressively SIGKILLs system-domain LaunchDaemons that touch the network — even on jailbreak. tmux is what every other persistent-process project on jailbroken iOS actually uses. See "Things we learned the hard way" → 13 below.
 
 ---
 
@@ -94,15 +90,11 @@ Prints a green/red checklist (Python, venv, .env, config, Telegram token, OpenAI
 
 ### Telegram (production)
 
-The LaunchDaemon keeps `main.py` alive across crashes and reboots. `KeepAlive=true`, `ThrottleInterval=10` (no restart storms). All conversations are persisted in SQLite.
+Once `iagent` is running, message your bot. Conversations are persisted to SQLite and survive restarts.
 
 ### CLI REPL (debugging)
 
-Telegram is awkward when something is broken — the daemon writes to a log file and you can't see what's happening live. `chat.py` reuses the **exact same** OpenAI client, memory, tools, and agent loop, but reads from stdin / prints to stdout:
-
-```bash
-IAGENT_HOME=/var/jb/var/mobile/iagent /var/jb/var/mobile/iagent/venv/bin/python /var/jb/var/mobile/iagent/code/chat.py
-```
+Telegram is awkward when something is broken — the bot writes to a log file and you can't see what's happening live. `iagent chat` opens a local REPL that reuses the **exact same** OpenAI client, memory, tools, and agent loop, but reads from stdin / prints to stdout:
 
 ```
 ────────────────────────────────────────────────────────────
@@ -113,7 +105,7 @@ you> what kernel am i running? use the shell tool
 agent> Darwin iPad-von-Tuan-Anh 23.x.0 ...
 ```
 
-The CLI uses `chat_id = -1` in SQLite so its history stays separate from Telegram conversations. Same tools, same model, same memory store.
+The CLI uses `chat_id = -1` in SQLite so its history stays separate from Telegram conversations.
 
 ---
 
@@ -133,7 +125,8 @@ The CLI uses `chat_id = -1` in SQLite so its history stays separate from Telegra
                    │  ├─ if tool_calls → asyncio.gather    │
                    │  │     ├─ tools.shell                 │
                    │  │     ├─ tools.file_io               │
-                   │  │     └─ tools.http_fetch            │
+                   │  │     ├─ tools.http_fetch            │
+                   │  │     └─ tools.apt (opt-in)          │
                    │  └─ append + loop (max 10 iterations) │
                    └───────────────┬───────────────────────┘
                                    │
@@ -143,20 +136,6 @@ The CLI uses `chat_id = -1` in SQLite so its history stays separate from Telegra
           │ agent/memory  │ │ tools/regis │ │ OpenAI API │
           │ aiosqlite WAL │ │ try (deco)  │ │ gpt-4o     │
           └───────────────┘ └─────────────┘ └────────────┘
-```
-
-### Agent loop in 10 lines
-
-```python
-messages = [system] + history(last_N) + [user]
-for _ in range(max_iterations):
-    rsp = await openai.chat.completions.create(messages, tools=schemas)
-    if rsp.finish_reason == "stop":
-        return rsp.message.content
-    # tool_calls — dispatch in parallel, append results, loop
-    results = await asyncio.gather(*[dispatch(tc) for tc in rsp.message.tool_calls])
-    messages.append(rsp.message)
-    messages += [{"role": "tool", "tool_call_id": tc.id, "content": r} for tc, r in ...]
 ```
 
 ### Available tools
@@ -172,7 +151,7 @@ for _ in range(max_iterations):
 | `apt_search` | Search the Procursus repo for available Sileo packages |
 | `apt_install` | Install a Sileo package — **opt-in**, requires `apt_install_enabled: true` AND the package name in `apt_install_allowlist` in `config.json` |
 
-All tool handlers are pure async, registered with a `@register({"name": ..., "parameters": ...})` decorator that simultaneously stores both the OpenAI tool schema and the dispatch function. Adding a new tool is one decorator + one async function.
+All tool handlers are pure async, registered with a `@register({...})` decorator that simultaneously stores both the OpenAI tool schema and the dispatch function. Adding a new tool is one decorator + one async function.
 
 ---
 
@@ -185,7 +164,7 @@ All tool handlers are pure async, registered with a `@register({"name": ..., "pa
 | `TELEGRAM_TOKEN` | From @BotFather |
 | `OPENAI_API_KEY` | From platform.openai.com |
 
-### `config.json` (settings)
+### `config.json`
 
 | Key | Default | Purpose |
 |---|---|---|
@@ -196,7 +175,7 @@ All tool handlers are pure async, registered with a `@register({"name": ..., "pa
 | `shell_timeout` | `30` | Seconds before a shell command is killed |
 | `shell_allowlist` | `null` | If set, only these commands may run via the `shell` tool |
 | `apt_install_enabled` | `false` | Master switch for the `apt_install` tool |
-| `apt_install_allowlist` | `[]` | Package names the agent is permitted to install via `apt_install` (e.g. `["pbcopy", "ca-certificates"]`) |
+| `apt_install_allowlist` | `[]` | Package names the agent is permitted to install (e.g. `["pbcopy", "ca-certificates"]`) |
 | `heartbeat_interval` | `0` | Seconds between heartbeat self-prompts. `0` disables. Wired through; activated when Phase 2.2 ships |
 
 ---
@@ -205,14 +184,14 @@ All tool handlers are pure async, registered with a `@register({"name": ..., "pa
 
 ```
 iAgent/
-├── main.py                       # Telegram bot entry point (LaunchDaemon target)
-├── chat.py                       # Local CLI REPL — same agent, no Telegram
-├── setup.py                      # Interactive setup wizard (Phase 1.1)
-├── doctor.py                     # Read-only health check (Phase 1.2)
-├── capabilities.py               # Capability registry — installed packages, shortcuts (Phase 1.4)
+├── iagent.sh                     # The unified `iagent` command (tmux-backed)
+├── main.py                       # Telegram bot entry point (run by `iagent`)
+├── chat.py                       # Local CLI REPL (run by `iagent chat`)
+├── setup.py                      # Interactive setup wizard (run by `iagent setup`)
+├── doctor.py                     # Read-only health check (run by `iagent doctor`)
+├── capabilities.py               # Capability registry — installed packages, shortcuts
 ├── bootstrap.sh                  # On-device curl|sh installer
 ├── install.sh                    # The actual installer (called by bootstrap)
-├── com.tiipeng.iagent.plist      # LaunchDaemon definition (KeepAlive, sudo install)
 ├── requirements.txt              # All deps pinned for iOS pip-wheel reality
 ├── config/
 │   ├── settings.py               # Loads .env + config.json into typed Settings
@@ -226,7 +205,7 @@ iAgent/
 │   ├── shell.py                  # asyncio subprocess (no fork)
 │   ├── file_io.py                # aiofiles, sandboxed to workspace_root
 │   ├── http_fetch.py             # aiohttp GET/POST
-│   └── apt.py                    # apt_install / apt_search (Phase 1.3, opt-in)
+│   └── apt.py                    # apt_install / apt_search (opt-in)
 ├── bot/
 │   ├── handlers.py               # /start, /clear, MessageHandler
 │   └── middleware.py             # allowed_user_ids gate
@@ -244,7 +223,6 @@ This section documents every dead end, in case you're trying to run a Python pro
 
 - NewTerm 3 / `ssh mobile@<ip>` runs as `mobile` — **not root**.
 - `mobile` cannot write to `/var/jb/usr/local/lib/`. Put your code under `/var/jb/var/mobile/...` instead.
-- LaunchDaemons live at `/var/jb/Library/LaunchDaemons/` (rootless), not `/Library/LaunchDaemons/`. Their plist must be owned `root:wheel` mode `644`, and `launchctl load` requires root — that's the only sudo step in the install.
 
 ### 2. Python is 3.9.9
 
@@ -268,8 +246,6 @@ When pip tries to compile from source, `maturin` invokes `puccinialin` to instal
 ValueError: Unknown macOS machine: iPad11,3
 ```
 
-…because `iPad11,3` isn't in its target-triple table.
-
 **Fix pattern:** pin to the last release before Rust became a hard dep.
 - `openai>=1.30,<1.32` (last pre-jiter)
 - `pydantic>=1.10,<2` (pydantic v1 is pure Python; openai 1.31 still supports both via a compat shim)
@@ -283,7 +259,7 @@ PyYAML ships its `_yaml` C extension as an optional accelerator. When pip can't 
 SystemError: Cannot locate working compiler
 ```
 
-You can `apt install clang` (in Sileo: search "clang"), but that requires root and adds 100MB+. The simpler fix: **don't use PyYAML** — JSON is in the stdlib. iAgent's config is JSON.
+You can `apt install clang` (in Sileo: search "clang"), but that requires root and adds 100MB+. Simpler: **don't use PyYAML** — JSON is in the stdlib. iAgent's config is JSON.
 
 ### 5. `httpx 0.28` broke `openai 1.31`
 
@@ -297,7 +273,7 @@ Pin `httpx>=0.25,<0.28`. The 0.27.x series is the last one that accepts the old 
 
 ### 6. Wheel-tag matching on iOS
 
-iOS reports its platform as `darwin` with machine `iPad11,3` (or similar). Pip happily downloads wheels tagged `macosx_10_9_universal2` because the macOS portion matches and `universal2` covers arm64. Wheels tagged `macosx_11_0_arm64` also work. Anything with a model-specific tag won't match — but in practice, the universal2 wheels exist for `aiohttp`, `multidict`, `frozenlist`, `yarl`, `propcache` and that's enough.
+iOS reports its platform as `darwin` with machine `iPad11,3`. Pip happily downloads wheels tagged `macosx_10_9_universal2` because the macOS portion matches and `universal2` covers arm64. Wheels tagged `macosx_11_0_arm64` also work. Anything with a model-specific tag won't match — but in practice, the universal2 wheels exist for `aiohttp`, `multidict`, `frozenlist`, `yarl`, `propcache` and that's enough.
 
 If a package only ships `manylinux*` wheels (no `macosx`), you're stuck with source builds.
 
@@ -324,11 +300,29 @@ Always `PRAGMA journal_mode=WAL` for any SQLite file the agent writes, otherwise
 
 ### 11. The bot must be `Start`ed once
 
-Telegram refuses to deliver messages from a bot to a user who hasn't opened the bot's chat at least once. If the daemon is healthy but you see no messages: open the bot in Telegram and tap **Start**. The bot will then receive your messages going forward.
+Telegram refuses to deliver messages from a bot to a user who hasn't opened the bot's chat at least once. If everything looks healthy but you see no messages: open the bot in Telegram and tap **Start**.
 
-### 12. iOS Jetsam
+### 12. iOS Jetsam reaps long-running processes
 
-Background processes get killed under memory pressure. `KeepAlive=true` in the LaunchDaemon plist auto-restarts within 10 seconds. SQLite's WAL mode means no history is lost across restarts.
+Background processes get killed under memory pressure. There's no way around this — but a tmux-managed process (started from a real shell session as the `mobile` user) gets gentler treatment than a system-domain LaunchDaemon, and `main.py` is lean enough that Jetsam rarely fires.
+
+### 13. **LaunchDaemons do not work for this on iOS rootless** ⚠️
+
+This was the biggest dead end. We tried multiple plist configurations and every one of them got the daemon SIGKILLed:
+
+| What we tried | What iOS did |
+|---|---|
+| `python main.py` directly as `ProgramArguments` | runs briefly, killed `-9` by AMFI when it touches the network |
+| Same with `KeepAlive=true` and `ThrottleInterval=10` | restart loop until launchd permanently abandons the service |
+| `UserName=mobile` to run as user instead of root | rejected with exit `78` (`EX_CONFIG`) — system-domain plists must run as root |
+| `tick.py` single-shot model with `StartInterval=30` | still SIGKILLed each invocation |
+| Wrapper shell script that does `sudo -u mobile python …` | rejected `78` when shebang was `/var/jb/bin/sh`; with `/bin/sh` invoked explicitly the wrapper ran but got SIGKILLed anyway |
+
+The same scripts work **flawlessly** when launched manually from a NewTerm/SSH session as the `mobile` user. The kernel/AMFI sandbox treats system-domain root-launched processes differently from user-launched ones, even on a jailbreak.
+
+**Verdict:** iAgent uses **tmux** instead. The `iagent` command spawns a tmux session running `main.py`, the bot lives there indefinitely, and you reattach with `iagent attach` whenever you want to see what it's doing. This is how every other persistent-process project on jailbroken iOS actually ships.
+
+If you reboot the iPad, after the Dopamine re-jailbreak, just SSH in and run `iagent` again. Optionally add a one-line entry to your shell rc that auto-starts it on login.
 
 ---
 
@@ -336,57 +330,61 @@ Background processes get killed under memory pressure. `KeepAlive=true` in the L
 
 | Task | Command |
 |---|---|
-| Status | `launchctl list \| grep iagent` |
-| Stop daemon | `sudo launchctl unload /var/jb/Library/LaunchDaemons/com.tiipeng.iagent.plist` |
-| Start daemon | `sudo launchctl load /var/jb/Library/LaunchDaemons/com.tiipeng.iagent.plist` |
-| Live tail logs | `tail -f /var/jb/var/mobile/iagent/logs/stderr.log` |
-| Update to latest | re-run the bootstrap one-liner — it pulls the repo, reinstalls deps, redeploys code |
+| Status | `iagent status` |
+| Stop | `iagent stop` |
+| Start | `iagent` |
+| Live tail logs | `iagent logs` |
+| Update to latest | `curl -fsSL https://raw.githubusercontent.com/tiipeng/iAgent/main/bootstrap.sh \| sh` |
 | Clear chat history | inside Telegram or CLI, send `/clear` |
-| Run agent in foreground (for debugging) | `IAGENT_HOME=/var/jb/var/mobile/iagent /var/jb/var/mobile/iagent/venv/bin/python /var/jb/var/mobile/iagent/code/main.py` |
-| Local CLI chat | `IAGENT_HOME=/var/jb/var/mobile/iagent /var/jb/var/mobile/iagent/venv/bin/python /var/jb/var/mobile/iagent/code/chat.py` |
+| Foreground debug | `iagent fg` (see exceptions live) |
+| Local CLI chat | `iagent chat` |
 
 ---
 
 ## Troubleshooting
 
-**First, run `doctor`.** It does most of the work for you:
+**First, run `iagent doctor`.** It does most of the work for you:
 
-```bash
-/var/jb/var/mobile/iagent/doctor
+```
+✓ python: Python 3.9.9 at /var/jb/usr/bin/python3.9
+✓ venv: 27 packages installed
+✓ env: TELEGRAM_TOKEN + OPENAI_API_KEY present
+✓ config: allowed_user_ids has 1 entry
+✓ telegram: verified — bot @your_iagent_bot
+✓ openai: verified
+✓ bot: running in tmux session 'iagent' (pid=…)
+✓ logs: iagent.log last modified 12s ago
+✓ disk: 6087 MB free on /var/jb
+✓ ca-certificates: /var/jb/etc/ssl/cert.pem
 ```
 
 Then, if needed:
 
-### `launchctl list` shows `-  -9  com.tiipeng.iagent`
+### Bot doesn't reply
 
-The daemon is being killed (signal 9) immediately on startup. `KeepAlive` keeps trying to restart, eventually `ThrottleInterval` slows it down. Causes, in order of likelihood:
+1. Run `iagent status`. If "stopped", run `iagent`.
+2. Have you tapped **Start** in the bot's Telegram chat? Bots can't message users until the user has initiated.
+3. Is your numeric Telegram user ID in `allowed_user_ids`? `iagent doctor` checks; the bot silently drops unauthorised messages.
+4. Is the bot username you're messaging the one your token belongs to? Run `iagent fg` and look for the `Bot: @<username>` line.
 
-1. `.env` missing or `TELEGRAM_TOKEN` blank → `RuntimeError: TELEGRAM_TOKEN is not set`
-2. `OPENAI_API_KEY` blank or wrong → `openai.AuthenticationError 401`
-3. Wrong path in plist → `FileNotFoundError`
+### `iagent: command not found`
 
-**Diagnose by running in foreground:**
-
-```bash
-sudo launchctl unload /var/jb/Library/LaunchDaemons/com.tiipeng.iagent.plist
-IAGENT_HOME=/var/jb/var/mobile/iagent /var/jb/var/mobile/iagent/venv/bin/python /var/jb/var/mobile/iagent/code/main.py
-```
-
-You'll see the real error in the terminal. Fix it, then `sudo launchctl load ...` again.
-
-### Bot doesn't reply but daemon is healthy
-
-1. Have you tapped **Start** in the bot's Telegram chat? Bots can't message users until the user has initiated.
-2. Is your numeric Telegram user ID in `allowed_user_ids`? The bot silently drops unauthorised messages — check the log for `Blocked message from user ...`.
-3. Is the bot username you're messaging the one your token belongs to? When `main.py` boots it logs `iAgent started. Bot: @<username>` — that's the only correct one.
-
-### `ModuleNotFoundError` after install
-
-You're probably running `python3` (Procursus user-site) instead of the venv. Use the absolute venv path:
+Open a new shell (the install added it to `~/.zshrc` PATH). Or:
 
 ```bash
-/var/jb/var/mobile/iagent/venv/bin/python ...
+source ~/.zshrc
 ```
+
+If still not found:
+
+```bash
+ls -la /var/jb/var/mobile/iagent/iagent  # should exist and be executable
+echo $PATH | tr ':' '\n' | grep iagent   # should show /var/jb/var/mobile/iagent
+```
+
+### `tmux: need UTF-8 locale`
+
+The `iagent` script sets `LC_ALL=en_US.UTF-8` automatically. If you still see this in some subshell, just `export LC_ALL=en_US.UTF-8` before retrying.
 
 ### `Cannot locate working compiler` while installing a dependency
 
@@ -412,3 +410,4 @@ MIT. See [LICENSE](LICENSE) (or just consider the code yours to play with — it
 - [hermes-agent](https://github.com/NousResearch/hermes-agent) — for the agentic tool-calling loop architecture
 - [Dopamine](https://ellekit.space/dopamine/) — for making any of this possible on a stock iPad
 - [Procursus](https://github.com/ProcursusTeam/Procursus) — for shipping a sane-enough Unix userland
+- tmux — for being the only thing iOS lets you actually keep alive
