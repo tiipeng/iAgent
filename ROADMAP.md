@@ -56,23 +56,27 @@ Planned features, ordered by what unlocks the most value per implementation effo
 
 `tools/clipboard.py` — `clipboard_read()` and `clipboard_write(text)`. Uses Procursus `pbcopy` / `pbpaste`. Install via Sileo if not present: `sudo apt install pbcopy`.
 
-### 3.4 Photo / Camera tools ⬜
+### 3.4 Photo / Camera tools ✅
 
-`take_photo()`, `read_recent_photos(limit=5)`, `describe_photo(path)`.
+`tools/photo.py` — `take_photo()`, `read_recent_photos(limit)`, `describe_photo(path, question)`.
 
 - `take_photo` / `read_recent_photos` — Shortcuts bridge.
-- `describe_photo` — base64-encode JPG, send to GPT-4o vision. Resize to max 1024px first.
+- `describe_photo` — base64-encodes the image and calls GPT-4o vision directly via httpx. Cap: 5 MB.
 
-### 3.5 Pasteboard / Files / AirDrop bridges ⬜
+### 3.5 iOS Shortcuts bridges ✅
 
-Lower-priority Shortcuts-based wrappers (one shortcut + one tool each):
+`tools/ios.py` — thin wrappers over named Shortcuts, all follow "receive text → do action → return text":
 
-- `read_health(metric)` — steps / heart rate / sleep via HealthKit
-- `set_home_scene(name)` — HomeKit
-- `create_reminder(text, when)` — Reminders
-- `get_location()` — GPS coords
-- `save_to_files(content, path)` — iCloud Drive / On My iPad
-- `play_music(query)` — Music app
+- `read_health(metric)` — HealthKit (steps, heart_rate, sleep, calories, …)
+- `set_home_scene(name)` — HomeKit scenes
+- `create_reminder(text, due)` — Reminders
+- `create_calendar_event(title, start, end, notes)` — Calendar
+- `get_location()` — GPS + address
+- `play_music(query)` — Apple Music
+- `save_to_files(filename, content)` — iCloud Drive / On My iPad
+- `send_imessage(recipient, message)` — iMessage / SMS
+
+Setup guide: ask the agent `view skill shortcuts_setup` for step-by-step Shortcut creation instructions.
 
 ---
 
@@ -116,8 +120,8 @@ When a tool errors out, the agent reads its own logs, proposes a fix, and (with 
 | 3.1 | Shortcuts bridge | ✅ |
 | 3.2 | Notifications | ✅ |
 | 3.3 | Clipboard | ✅ |
-| 3.4 | Photo/Camera | ⬜ |
-| 3.5 | Files/Health/Home | ⬜ |
+| 3.4 | Photo/Camera + GPT-4o vision | ✅ |
+| 3.5 | Health/Home/Reminders/Location/Music/Files/iMessage | ✅ |
 | 4.1 | Skill creation | 🚧 partial |
 | 4.2 | Fact memory | ✅ |
 | 4.3 | Self-debugging | ⬜ |

@@ -16,6 +16,7 @@ from config.settings import load_settings
 import tools.apt as apt_tool
 import tools.file_io as file_io_tool
 import tools.http_fetch as http_tool
+import tools.photo as photo_tool
 import tools.shell as shell_tool
 from utils.logger import setup_logger
 
@@ -29,6 +30,8 @@ import tools.shortcuts  # noqa: F401
 import tools.clipboard  # noqa: F401
 import tools.notify  # noqa: F401
 import tools.facts  # noqa: F401
+import tools.photo  # noqa: F401
+import tools.ios  # noqa: F401
 
 
 async def on_startup(app: Application) -> None:
@@ -83,6 +86,10 @@ def main() -> None:
     apt_tool.configure(
         enabled=settings.apt_install_enabled,
         allowlist=settings.apt_install_allowlist,
+    )
+    photo_tool.configure(
+        api_key=settings.openai_api_key,
+        model=settings.openai_model,
     )
 
     memory = Memory(settings.db_path)
