@@ -82,6 +82,8 @@ cp -R "$IAGENT_SRC/main.py" \
 # Convenience launcher in IAGENT_HOME so user can just run ~/iagent/chat
 cat > "$IAGENT_HOME/chat" <<'EOF'
 #!/var/jb/bin/sh
+export IAGENT_HOME=/var/jb/var/mobile/iagent
+export SSL_CERT_FILE=/var/jb/etc/ssl/cert.pem
 exec /var/jb/var/mobile/iagent/venv/bin/python /var/jb/var/mobile/iagent/code/chat.py "$@"
 EOF
 chmod +x "$IAGENT_HOME/chat"
