@@ -104,7 +104,7 @@ echo ""
 echo "1. Edit secrets:   nano $IAGENT_HOME/.env"
 echo "                    → TELEGRAM_TOKEN and OPENAI_API_KEY"
 echo ""
-echo "2. Edit allowlist: nano $IAGENT_HOME/config.yaml"
+echo "2. Edit allowlist: nano $IAGENT_HOME/config.json"
 echo "                    → put your Telegram user ID under allowed_user_ids"
 echo ""
 
