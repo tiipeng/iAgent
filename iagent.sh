@@ -15,9 +15,12 @@ export PYTHONUNBUFFERED=1
 PY="$IAGENT_HOME/venv/bin/python"
 CODE="$IAGENT_HOME/code"
 SESSION=iagent
+# Dopamine's /tmp symlink resolves to a path > 100 chars, which exceeds the
+# Unix socket name limit. Use a short explicit socket path instead.
+TMUX_SOCK="$IAGENT_HOME/tmux.sock"
 
 _have_session() {
-    tmux has-session -t "$SESSION" 2>/dev/null
+    tmux -S "$TMUX_SOCK" has-session -t "$SESSION" 2>/dev/null
 }
 
 _require_tmux() {
@@ -66,7 +69,7 @@ case "$cmd" in
         # tmux only needs that single value to satisfy its UTF-8 check, and
         # it doesn't validate it against the locale DB the way en_US.UTF-8 is.
         unset LC_ALL LANG LC_MESSAGES LC_COLLATE LC_NUMERIC LC_TIME
-        LC_CTYPE=UTF-8 tmux new-session -d -s "$SESSION" \
+        LC_CTYPE=UTF-8 tmux -S "$TMUX_SOCK" new-session -d -s "$SESSION" \
             "LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 exec '$PY' '$CODE/main.py'"
         sleep 2
         if _have_session; then
@@ -90,13 +93,13 @@ case "$cmd" in
             exit 1
         fi
         unset LC_ALL LANG LC_MESSAGES LC_COLLATE LC_NUMERIC LC_TIME
-        LC_CTYPE=UTF-8 exec tmux attach -t "$SESSION"
+        LC_CTYPE=UTF-8 exec tmux -S "$TMUX_SOCK" attach -t "$SESSION"
         ;;
 
     stop|kill)
         _require_tmux
         if _have_session; then
-            tmux kill-session -t "$SESSION"
+            tmux -S "$TMUX_SOCK" kill-session -t "$SESSION"
             echo "iAgent stopped."
         else
             echo "iAgent is not running."
@@ -111,7 +114,7 @@ case "$cmd" in
 
     status)
         if _have_session 2>/dev/null; then
-            pid=$(tmux list-panes -t "$SESSION" -F '#{pane_pid}' 2>/dev/null | head -1)
+            pid=$(tmux -S "$TMUX_SOCK" list-panes -t "$SESSION" -F '#{pane_pid}' 2>/dev/null | head -1)
             echo "iAgent: running (tmux session '$SESSION', pane pid=$pid)"
         else
             echo "iAgent: stopped"
