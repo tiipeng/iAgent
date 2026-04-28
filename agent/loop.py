@@ -12,6 +12,21 @@ import tools.registry as registry
 
 logger = logging.getLogger("iagent.loop")
 
+# Cap any single tool result before it lands in memory + the message list.
+# 8 KB ≈ ~2000 tokens — fits a reasonable response, blocks runaway log dumps,
+# image base64, file reads, etc. that would balloon the next request.
+_MAX_TOOL_RESULT_BYTES = 8000
+
+
+def _truncate(s: str, limit: int = _MAX_TOOL_RESULT_BYTES) -> str:
+    if not s:
+        return s
+    encoded = s.encode("utf-8", errors="replace")
+    if len(encoded) <= limit:
+        return s
+    head = encoded[:limit].decode("utf-8", errors="replace")
+    return head + f"\n…[truncated, original was {len(encoded)} bytes]"
+
 
 async def run(
     client: AsyncOpenAI,
@@ -25,6 +40,12 @@ async def run(
 
     # Build message list: system + history + current user message
     history = await memory.get_history(context.chat_id, limit=context.history_window)
+    # Defensive: truncate any oversized historical content so old runaway
+    # tool results from before _MAX_TOOL_RESULT_BYTES landed don't keep
+    # blowing up requests. Affects in-flight only; DB rows are unchanged.
+    for msg in history:
+        if isinstance(msg.get("content"), str):
+            msg["content"] = _truncate(msg["content"])
     messages: list[dict] = [{"role": "system", "content": context.system_prompt()}]
     messages.extend(history)
 
@@ -77,16 +98,22 @@ async def run(
             )
 
             for tc, result in zip(tool_calls, results):
+                truncated = _truncate(result)
+                if truncated != result:
+                    logger.info(
+                        "Truncated %s output: %d → %d bytes",
+                        tc.function.name, len(result), len(truncated),
+                    )
                 tool_msg = {
                     "role": "tool",
                     "tool_call_id": tc.id,
-                    "content": result,
+                    "content": truncated,
                 }
                 messages.append(tool_msg)
                 await memory.append(
                     context.chat_id,
                     "tool",
-                    content=result,
+                    content=truncated,
                     tool_call_id=tc.id,
                 )
 
