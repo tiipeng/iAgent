@@ -8,9 +8,11 @@ IAGENT_HOME="/var/jb/var/mobile/iagent"
 IAGENT_CODE="/var/jb/usr/local/lib/iagent"
 PLIST_DEST="/var/jb/Library/LaunchDaemons/com.tiipeng.iagent.plist"
 
-# ── Locate Python 3.11+ ──────────────────────────────────────────────────
+# ── Locate Python (3.9+) ─────────────────────────────────────────────────
+# Procursus ships Python 3.9.9 by default. iAgent works on 3.9+.
+# If a newer Python (3.10/3.11/3.12) is installed via Sileo, prefer it.
 find_python() {
-    for candidate in python3.12 python3.11; do
+    for candidate in python3.12 python3.11 python3.10 python3.9 python3; do
         bin="/var/jb/usr/bin/$candidate"
         if [ -x "$bin" ]; then
             echo "$bin"
@@ -23,13 +25,19 @@ find_python() {
 PYTHON="$(find_python)"
 if [ -z "$PYTHON" ]; then
     echo ""
-    echo "ERROR: Python 3.11 or 3.12 not found."
-    echo "Open Sileo and install the 'python3.11' package from the Procursus repo, then re-run this script."
+    echo "ERROR: No python3 found at /var/jb/usr/bin/."
+    echo "Install the 'python3' package from Procursus via Sileo, then re-run."
     exit 1
 fi
 
-VER=$("$PYTHON" -c "import sys; print(sys.version)")
-echo "[OK] Found Python: $VER at $PYTHON"
+# Verify >= 3.9
+"$PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3,9) else 1)' || {
+    echo "ERROR: $PYTHON is too old. iAgent requires Python 3.9 or newer."
+    exit 1
+}
+
+VER=$("$PYTHON" -c "import sys; print('.'.join(map(str, sys.version_info[:3])))")
+echo "[OK] Using Python $VER at $PYTHON"
 
 # ── Create directories ───────────────────────────────────────────────────
 echo "[1/6] Creating directories..."

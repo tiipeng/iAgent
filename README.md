@@ -9,13 +9,14 @@ Inspired by [openclaw](https://github.com/openclaw/openclaw) and [hermes-agent](
 ## Requirements
 
 - Jailbroken iPad/iPhone — Dopamine (iOS 15–16.5.1, arm64e, rootless)
-- **Python 3.11+** via Sileo (search `python3.11` in Sileo/Procursus repo)
+- **Python 3.9+** — already shipped by Procursus as `python3` (3.9.9)
 - `ca-certificates` via Sileo
 - A [Telegram bot token](https://t.me/BotFather)
 - An [OpenAI API key](https://platform.openai.com/api-keys)
 
-> **Note:** Procursus ships Python 3.9.9 by default. You **must** install Python 3.11 first.
-> After installing in Sileo, verify: `python3.11 --version`
+> **Note on Python version:** Procursus's default `python3` package is Python 3.9.9.
+> iAgent is written to work on 3.9+. If Sileo offers a newer `python3.10/3.11/3.12`
+> package later, the installer will pick the highest available automatically.
 
 ---
 
@@ -24,7 +25,7 @@ Inspired by [openclaw](https://github.com/openclaw/openclaw) and [hermes-agent](
 ```bash
 git clone https://github.com/tiipeng/iAgent.git
 cd iAgent
-python3.11 -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # fill in TELEGRAM_TOKEN and OPENAI_API_KEY

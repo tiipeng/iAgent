@@ -6,9 +6,11 @@
     <key>Label</key>
     <string>com.tiipeng.iagent</string>
 
+    <!-- venv created by install.sh; the symlink inside venv points to whichever
+         Python the installer found (3.9.x default on Procursus). -->
     <key>ProgramArguments</key>
     <array>
-        <string>/var/jb/var/mobile/iagent/venv/bin/python3</string>
+        <string>/var/jb/var/mobile/iagent/venv/bin/python</string>
         <string>/var/jb/usr/local/lib/iagent/main.py</string>
     </array>
 

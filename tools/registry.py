@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable, Coroutine
+from typing import Any, Callable, Coroutine, Union
 
 logger = logging.getLogger("iagent.tools")
 
@@ -24,7 +24,7 @@ def get_schemas() -> list[dict]:
     return list(_schemas)
 
 
-async def dispatch(name: str, arguments: dict | str) -> str:
+async def dispatch(name: str, arguments: Union[dict, str]) -> str:
     if isinstance(arguments, str):
         try:
             arguments = json.loads(arguments)
