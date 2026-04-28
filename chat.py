@@ -32,6 +32,7 @@ import tools.facts  # noqa: F401
 import tools.photo  # noqa: F401
 import tools.ios  # noqa: F401
 import tools.device  # noqa: F401
+import tools.automation  # noqa: F401
 import tools.self_debug  # noqa: F401
 
 # A dedicated chat id so CLI conversations don't pollute Telegram history.

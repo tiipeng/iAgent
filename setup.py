@@ -256,6 +256,7 @@ def main() -> int:
             "shortcuts-cli", "pbcopy", "pbpaste", "ca-certificates",
             "upower", "wifiman", "ncurses", "tmux", "openssh", "curl", "wget",
             "ffmpeg", "imagemagick", "screencapture-ios", "nano", "vim",
+            "uikittools", "uikittools-ng", "activator",
         ]),
     }
     write_config(cfg)
