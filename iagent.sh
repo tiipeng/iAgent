@@ -62,6 +62,9 @@ case "$cmd" in
             exit 0
         fi
         echo "Starting iAgent in tmux session '$SESSION'…"
+        # Unset locale vars so tmux doesn't fail its locale check on iOS.
+        # They are re-applied inline for the Python process inside the session.
+        unset LC_ALL LANG LC_CTYPE LC_MESSAGES LC_COLLATE LC_NUMERIC LC_TIME
         tmux new-session -d -s "$SESSION" \
             "LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 exec '$PY' '$CODE/main.py'"
         sleep 2
@@ -85,6 +88,7 @@ case "$cmd" in
             echo "iAgent is not running. Start it with:  iagent" >&2
             exit 1
         fi
+        unset LC_ALL LANG LC_CTYPE LC_MESSAGES LC_COLLATE LC_NUMERIC LC_TIME
         exec tmux attach -t "$SESSION"
         ;;
 
