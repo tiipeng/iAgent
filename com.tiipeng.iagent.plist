@@ -14,13 +14,9 @@
         <string>/var/jb/var/mobile/iagent/code/main.py</string>
     </array>
 
-    <!-- Run as the mobile user (not root). Files in IAGENT_HOME are owned
-         by mobile, and Jetsam treats user processes more leniently than
-         root daemons under memory pressure. -->
-    <key>UserName</key>
-    <string>mobile</string>
-    <key>GroupName</key>
-    <string>mobile</string>
+    <!-- iOS LaunchDaemons in the system domain reject UserName=mobile with
+         exit 78 (EX_CONFIG). The daemon therefore runs as root. Files in
+         IAGENT_HOME are mobile-owned, but root can read+write them. -->
 
     <key>EnvironmentVariables</key>
     <dict>
