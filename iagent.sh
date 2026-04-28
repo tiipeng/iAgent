@@ -8,9 +8,11 @@ set -e
 export IAGENT_HOME=/var/jb/var/mobile/iagent
 export SSL_CERT_FILE=/var/jb/etc/ssl/cert.pem
 export PYTHONUNBUFFERED=1
-# iOS locale DB is sparse — don't set LC_ALL/LANG globally because tmux
-# validates them at startup and rejects anything not in the device's locale DB.
-# We pass them inline to each command that actually needs UTF-8 output.
+# Unset all locale vars globally so every tmux call (list-sessions, kill-session,
+# new-session, attach, …) passes tmux's locale check on iOS. Python processes
+# get en_US.UTF-8 applied inline on their exec lines below.
+unset LC_ALL LANG LC_CTYPE LC_MESSAGES LC_COLLATE LC_NUMERIC LC_TIME
+export LC_CTYPE=UTF-8
 
 PY="$IAGENT_HOME/venv/bin/python"
 CODE="$IAGENT_HOME/code"
@@ -65,11 +67,7 @@ case "$cmd" in
             exit 0
         fi
         echo "Starting iAgent in tmux session '$SESSION'…"
-        # iOS locale DB is sparse. Unset everything except LC_CTYPE=UTF-8:
-        # tmux only needs that single value to satisfy its UTF-8 check, and
-        # it doesn't validate it against the locale DB the way en_US.UTF-8 is.
-        unset LC_ALL LANG LC_MESSAGES LC_COLLATE LC_NUMERIC LC_TIME
-        LC_CTYPE=UTF-8 tmux -S "$TMUX_SOCK" new-session -d -s "$SESSION" \
+        tmux -S "$TMUX_SOCK" new-session -d -s "$SESSION" \
             "LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 exec '$PY' '$CODE/main.py'"
         sleep 2
         if _have_session; then
@@ -92,8 +90,7 @@ case "$cmd" in
             echo "iAgent is not running. Start it with:  iagent" >&2
             exit 1
         fi
-        unset LC_ALL LANG LC_MESSAGES LC_COLLATE LC_NUMERIC LC_TIME
-        LC_CTYPE=UTF-8 exec tmux -S "$TMUX_SOCK" attach -t "$SESSION"
+        exec tmux -S "$TMUX_SOCK" attach -t "$SESSION"
         ;;
 
     stop|kill)
