@@ -172,10 +172,24 @@ case "$cmd" in
         # 2. Install support packages (best-effort; missing ones are skipped)
         echo
         echo "[2/4] Installing support packages…"
-        sudo -n /var/jb/usr/bin/apt update 2>/dev/null || sudo /var/jb/usr/bin/apt update
+
+        # Most jailbroken iPads have several third-party repos with unsigned
+        # Release files. We tell apt to tolerate them so update doesn't fail.
+        APT_OPTS="-o Acquire::AllowInsecureRepositories=true \
+-o Acquire::AllowDowngradeToInsecureRepositories=true"
+
+        printf "      apt update… "
+        if sudo -n /var/jb/usr/bin/apt $APT_OPTS update >/dev/null 2>&1; then
+            echo "ok"
+        else
+            echo "had warnings (unsigned repos) — continuing anyway"
+        fi
+
         for pkg in com.witchan.ios-mcp uikittools-ng upower wifiman screencapture-ios pbcopy; do
             printf "      installing %s … " "$pkg"
-            if sudo -n /var/jb/usr/bin/apt install -y --no-install-recommends "$pkg" >/dev/null 2>&1; then
+            if sudo -n /var/jb/usr/bin/apt $APT_OPTS install -y \
+                    --allow-unauthenticated --no-install-recommends "$pkg" \
+                    >/dev/null 2>&1; then
                 echo "ok"
             else
                 echo "skipped (not in repo or already installed)"
