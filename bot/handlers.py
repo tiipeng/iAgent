@@ -41,11 +41,23 @@ BOT_COMMANDS = [
 ]
 
 
+_SHELL_CANDIDATES = ["/var/jb/bin/sh", "/bin/sh", "/var/jb/usr/bin/sh"]
+
+
+def _find_shell() -> str:
+    for s in _SHELL_CANDIDATES:
+        if Path(s).exists():
+            return s
+    return "/bin/sh"
+
+
 async def _shell(cmd: str, timeout: float = 10.0) -> str:
     """Run a shell command, return combined stdout+stderr as a string."""
+    sh = _find_shell()
     try:
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
+        # exec with explicit shell path — /bin/sh is a stub on rootless Dopamine
+        proc = await asyncio.create_subprocess_exec(
+            sh, "-c", cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )

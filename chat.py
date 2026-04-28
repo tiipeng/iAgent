@@ -197,8 +197,11 @@ async def main() -> None:
                     continue
                 shell_cmd = cmd_map.get(line, "")
                 if shell_cmd:
-                    proc = await _aio.create_subprocess_shell(
-                        shell_cmd,
+                    from pathlib import Path as _P
+                    sh = next((s for s in ("/var/jb/bin/sh", "/bin/sh", "/var/jb/usr/bin/sh")
+                               if _P(s).exists()), "/bin/sh")
+                    proc = await _aio.create_subprocess_exec(
+                        sh, "-c", shell_cmd,
                         stdout=_aio.subprocess.PIPE,
                         stderr=_aio.subprocess.STDOUT,
                     )

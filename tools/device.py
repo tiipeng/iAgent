@@ -16,10 +16,21 @@ _IAGENT_HOME = Path(os.environ.get("IAGENT_HOME", Path.home() / ".iagent"))
 _SHORTCUTS_BIN = "/var/jb/usr/bin/shortcuts"
 
 
+_SHELL_CANDIDATES = ["/var/jb/bin/sh", "/bin/sh", "/var/jb/usr/bin/sh"]
+
+
+def _find_shell() -> str:
+    for s in _SHELL_CANDIDATES:
+        if Path(s).exists():
+            return s
+    return "/bin/sh"
+
+
 async def _sh(cmd: str, timeout: float = 8.0) -> str:
+    sh = _find_shell()
     try:
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
+        proc = await asyncio.create_subprocess_exec(
+            sh, "-c", cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
