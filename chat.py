@@ -38,14 +38,21 @@ CLI_CHAT_ID = -1
 
 
 _CLI_HELP = """\
-  /help      show this message
-  /clear     reset conversation history
-  /skills    list available skills
-  /facts     list remembered facts
-  /tools     list all registered agent tools
-  /model     show current model
-  /status    show session info
-  /quit      exit"""
+  /help       show this message
+  /clear      reset conversation history
+  /skills     list available skills
+  /facts      list remembered facts
+  /tools      list all registered agent tools
+  /model      show current model
+  /status     show session info
+  /battery    battery level
+  /wifi       Wi-Fi SSID and IP
+  /disk       disk usage
+  /ip         network interfaces
+  /processes  top 10 processes by CPU
+  /logs [n]   last n log lines (default 30)
+  /restart    restart the bot gateway
+  /quit       exit"""
 
 
 def _print_banner(model: str) -> None:
@@ -132,6 +139,62 @@ async def main() -> None:
                     f"  history: {len(history)} messages (window={settings.history_window})\n"
                     f"  db:      {settings.db_path}"
                 )
+                continue
+            if line in ("/battery", "/wifi", "/disk", "/ip", "/processes") or line.startswith("/logs"):
+                import asyncio as _aio
+                cmd_map = {
+                    "/battery": (
+                        "cat /sys/class/power_supply/battery/capacity 2>/dev/null && "
+                        "cat /sys/class/power_supply/battery/status 2>/dev/null || "
+                        "pmset -g batt 2>/dev/null || echo 'unavailable'"
+                    ),
+                    "/wifi": (
+                        "networksetup -getairportnetwork en0 2>/dev/null; "
+                        "ipconfig getifaddr en0 2>/dev/null"
+                    ),
+                    "/disk":      "df -h / /var/jb 2>/dev/null || df -h /",
+                    "/ip":        "ifconfig 2>/dev/null | grep -E '(^[a-z]|inet )' | grep -v 127",
+                    "/processes": "ps aux 2>/dev/null | sort -rk3 | head -11",
+                }
+                if line.startswith("/logs"):
+                    parts = line.split()
+                    n = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 30
+                    from pathlib import Path as _P
+                    import os as _os
+                    home = _P(_os.environ.get("IAGENT_HOME", _P.home() / ".iagent"))
+                    for name in ("iagent.log", "stderr.log"):
+                        p = home / "logs" / name
+                        if p.exists():
+                            tail = p.read_text(errors="replace").splitlines()[-n:]
+                            print(f"\n--- {name} ---")
+                            print("\n".join(tail))
+                    continue
+                shell_cmd = cmd_map.get(line, "")
+                if shell_cmd:
+                    proc = await _aio.create_subprocess_shell(
+                        shell_cmd,
+                        stdout=_aio.subprocess.PIPE,
+                        stderr=_aio.subprocess.STDOUT,
+                    )
+                    out, _ = await _aio.wait_for(proc.communicate(), timeout=10.0)
+                    print(out.decode(errors="replace").strip())
+                continue
+            if line == "/restart":
+                import shutil as _sh
+                import os as _os
+                from pathlib import Path as _P
+                home = _P(_os.environ.get("IAGENT_HOME", _P.home() / ".iagent"))
+                cmd = str(home / "iagent")
+                if not _P(cmd).exists():
+                    cmd = _sh.which("iagent") or "iagent"
+                print("Restarting iAgent gateway…")
+                proc = await asyncio.create_subprocess_exec(
+                    cmd, "restart",
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                await proc.wait()
+                print("Done.")
                 continue
 
             try:

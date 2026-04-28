@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 import platform
+import shutil
 from datetime import datetime
+from pathlib import Path
 
 from telegram import BotCommand, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
@@ -16,16 +20,41 @@ from openai import AsyncOpenAI
 
 logger = logging.getLogger("iagent.bot")
 
+_IAGENT_HOME = Path(os.environ.get("IAGENT_HOME", Path.home() / ".iagent"))
+
 BOT_COMMANDS = [
-    BotCommand("start",   "Wake up the bot"),
-    BotCommand("help",    "List all commands"),
-    BotCommand("clear",   "Reset conversation history"),
-    BotCommand("status",  "Show uptime, model, memory stats"),
-    BotCommand("skills",  "List available skills"),
-    BotCommand("facts",   "List remembered facts"),
-    BotCommand("model",   "Show or switch the AI model"),
-    BotCommand("memory",  "Show how many messages are in history"),
+    BotCommand("start",     "Wake up the bot"),
+    BotCommand("help",      "List all commands"),
+    BotCommand("clear",     "Reset conversation history"),
+    BotCommand("status",    "Show uptime, model, memory stats"),
+    BotCommand("skills",    "List available skills"),
+    BotCommand("facts",     "List remembered facts"),
+    BotCommand("model",     "Show or switch the AI model"),
+    BotCommand("memory",    "Show how many messages are in history"),
+    BotCommand("battery",   "Battery level and charging state"),
+    BotCommand("wifi",      "Wi-Fi SSID and IP address"),
+    BotCommand("disk",      "Disk usage"),
+    BotCommand("ip",        "All network interface addresses"),
+    BotCommand("processes", "Top 10 processes by CPU usage"),
+    BotCommand("logs",      "Last 30 log lines"),
+    BotCommand("restart",   "Restart the bot (back in ~5 s)"),
 ]
+
+
+async def _shell(cmd: str, timeout: float = 10.0) -> str:
+    """Run a shell command, return combined stdout+stderr as a string."""
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return stdout.decode(errors="replace").strip() or "(no output)"
+    except asyncio.TimeoutError:
+        return f"(timed out after {timeout:.0f}s)"
+    except Exception as exc:
+        return f"(error: {exc})"
 
 
 def _app_data(context: ContextTypes.DEFAULT_TYPE) -> dict:
@@ -56,14 +85,19 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 @_guard
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    sections = {
+        "General": ["start", "help", "clear", "status", "model", "memory"],
+        "Agent":   ["skills", "facts"],
+        "iOS":     ["battery", "wifi", "disk", "ip", "processes", "logs", "restart"],
+    }
     lines = ["*iAgent commands*\n"]
-    for cmd in BOT_COMMANDS:
-        lines.append(f"/{cmd.command} — {cmd.description}")
-    lines += [
-        "",
-        "Or just talk to me in plain language — I have tools for shell, "
-        "files, HTTP, clipboard, Shortcuts, HealthKit, HomeKit, and more.",
-    ]
+    cmd_map = {c.command: c.description for c in BOT_COMMANDS}
+    for section, cmds in sections.items():
+        lines.append(f"_{section}_")
+        for name in cmds:
+            lines.append(f"  /{name} — {cmd_map.get(name, '')}")
+        lines.append("")
+    lines.append("Or just talk to me in plain language.")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
@@ -150,6 +184,100 @@ async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     )
 
 
+# ── iOS / system commands ─────────────────────────────────────────────────
+
+@_guard
+async def cmd_battery(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Try multiple sources; iOS jailbreak exposes battery via sysctl or a CLI
+    out = await _shell(
+        "sysctl -n hw.targettype 2>/dev/null; "
+        "cat /sys/class/power_supply/battery/capacity 2>/dev/null && "
+        "cat /sys/class/power_supply/battery/status 2>/dev/null || "
+        "pmset -g batt 2>/dev/null || "
+        "echo 'Battery info unavailable — install batteryinfo via Sileo'"
+    )
+    await update.message.reply_text(f"*Battery*\n`{out}`", parse_mode="Markdown")
+
+
+@_guard
+async def cmd_wifi(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    ssid = await _shell(
+        "/var/jb/usr/bin/networksetup -getairportnetwork en0 2>/dev/null || "
+        "ipconfig getsummary en0 2>/dev/null | grep -i ssid || "
+        "echo 'SSID unavailable'"
+    )
+    ip = await _shell("ipconfig getifaddr en0 2>/dev/null || ifconfig en0 2>/dev/null | grep 'inet ' | awk '{print $2}'")
+    await update.message.reply_text(
+        f"*Wi-Fi*\n{ssid}\nIP: `{ip or 'not connected'}`",
+        parse_mode="Markdown",
+    )
+
+
+@_guard
+async def cmd_disk(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    out = await _shell("df -h / /var/jb 2>/dev/null || df -h /")
+    await update.message.reply_text(f"*Disk usage*\n```\n{out}\n```", parse_mode="Markdown")
+
+
+@_guard
+async def cmd_ip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    out = await _shell("ifconfig 2>/dev/null | grep -E '(^[a-z]|inet )' | grep -v '127.0.0.1' | grep -v '::1'")
+    await update.message.reply_text(f"*Network interfaces*\n```\n{out}\n```", parse_mode="Markdown")
+
+
+@_guard
+async def cmd_processes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    out = await _shell("ps aux 2>/dev/null | sort -rk3 | head -11 || ps -e -o pid,pcpu,pmem,comm | sort -rk2 | head -11")
+    await update.message.reply_text(f"*Top processes (by CPU)*\n```\n{out}\n```", parse_mode="Markdown")
+
+
+@_guard
+async def cmd_logs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = context.args
+    n = 30
+    if args:
+        try:
+            n = max(1, min(int(args[0]), 100))
+        except ValueError:
+            pass
+
+    log_dir = _IAGENT_HOME / "logs"
+    lines_all: list[str] = []
+    for name in ("iagent.log", "stderr.log"):
+        p = log_dir / name
+        if p.exists():
+            text = p.read_text(errors="replace").splitlines()
+            lines_all += [f"[{name}] {l}" for l in text[-n:]]
+
+    if not lines_all:
+        await update.message.reply_text("No log files found yet.")
+        return
+
+    tail = "\n".join(lines_all[-n:])
+    for chunk in _split_message(f"```\n{tail}\n```", 4096):
+        await update.message.reply_text(chunk, parse_mode="Markdown")
+
+
+@_guard
+async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("Restarting iAgent in 3 s… I'll be back shortly.")
+
+    iagent_cmd = str(_IAGENT_HOME / "iagent")
+    if not Path(iagent_cmd).exists():
+        iagent_cmd = shutil.which("iagent") or "iagent"
+
+    async def _do_restart() -> None:
+        await asyncio.sleep(3)
+        proc = await asyncio.create_subprocess_exec(
+            iagent_cmd, "restart",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+
+    asyncio.create_task(_do_restart())
+
+
 # ── Message handler ───────────────────────────────────────────────────────
 
 @_guard
@@ -199,12 +327,19 @@ def _split_message(text: str, max_len: int) -> list[str]:
 # ── Registration ──────────────────────────────────────────────────────────
 
 def register_handlers(app: Application) -> None:
-    app.add_handler(CommandHandler("start",   cmd_start))
-    app.add_handler(CommandHandler("help",    cmd_help))
-    app.add_handler(CommandHandler("clear",   cmd_clear))
-    app.add_handler(CommandHandler("status",  cmd_status))
-    app.add_handler(CommandHandler("skills",  cmd_skills))
-    app.add_handler(CommandHandler("facts",   cmd_facts))
-    app.add_handler(CommandHandler("model",   cmd_model))
-    app.add_handler(CommandHandler("memory",  cmd_memory))
+    app.add_handler(CommandHandler("start",     cmd_start))
+    app.add_handler(CommandHandler("help",      cmd_help))
+    app.add_handler(CommandHandler("clear",     cmd_clear))
+    app.add_handler(CommandHandler("status",    cmd_status))
+    app.add_handler(CommandHandler("skills",    cmd_skills))
+    app.add_handler(CommandHandler("facts",     cmd_facts))
+    app.add_handler(CommandHandler("model",     cmd_model))
+    app.add_handler(CommandHandler("memory",    cmd_memory))
+    app.add_handler(CommandHandler("battery",   cmd_battery))
+    app.add_handler(CommandHandler("wifi",      cmd_wifi))
+    app.add_handler(CommandHandler("disk",      cmd_disk))
+    app.add_handler(CommandHandler("ip",        cmd_ip))
+    app.add_handler(CommandHandler("processes", cmd_processes))
+    app.add_handler(CommandHandler("logs",      cmd_logs))
+    app.add_handler(CommandHandler("restart",   cmd_restart))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
