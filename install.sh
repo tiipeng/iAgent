@@ -71,12 +71,20 @@ echo "      Dependencies installed."
 # ── Copy application code ────────────────────────────────────────────────
 echo "[4/5] Installing application code to $IAGENT_CODE ..."
 cp -R "$IAGENT_SRC/main.py" \
+      "$IAGENT_SRC/chat.py" \
       "$IAGENT_SRC/config" \
       "$IAGENT_SRC/agent" \
       "$IAGENT_SRC/tools" \
       "$IAGENT_SRC/bot" \
       "$IAGENT_SRC/utils" \
       "$IAGENT_CODE/"
+
+# Convenience launcher in IAGENT_HOME so user can just run ~/iagent/chat
+cat > "$IAGENT_HOME/chat" <<'EOF'
+#!/var/jb/bin/sh
+exec /var/jb/var/mobile/iagent/venv/bin/python /var/jb/var/mobile/iagent/code/chat.py "$@"
+EOF
+chmod +x "$IAGENT_HOME/chat"
 
 # ── Render the LaunchDaemon plist with current paths ────────────────────
 echo "[5/5] Rendering LaunchDaemon plist..."
@@ -124,5 +132,6 @@ else
 fi
 
 echo ""
-echo "Logs:    tail -f $IAGENT_HOME/logs/stderr.log"
-echo "Status:  launchctl list | grep iagent"
+echo "Logs:      tail -f $IAGENT_HOME/logs/stderr.log"
+echo "Status:    launchctl list | grep iagent"
+echo "CLI chat:  $IAGENT_HOME/chat        # interactive REPL for debugging"
