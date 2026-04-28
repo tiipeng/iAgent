@@ -37,10 +37,21 @@ import tools.self_debug  # noqa: F401
 CLI_CHAT_ID = -1
 
 
+_CLI_HELP = """\
+  /help      show this message
+  /clear     reset conversation history
+  /skills    list available skills
+  /facts     list remembered facts
+  /tools     list all registered agent tools
+  /model     show current model
+  /status    show session info
+  /quit      exit"""
+
+
 def _print_banner(model: str) -> None:
     print("\033[1;36m" + "─" * 60 + "\033[0m")
     print(f" iAgent CLI — model: \033[1m{model}\033[0m")
-    print(" Commands: /clear  reset history   |   /quit  exit")
+    print(" Type /help for commands")
     print("\033[1;36m" + "─" * 60 + "\033[0m")
 
 
@@ -91,9 +102,36 @@ async def main() -> None:
 
             if line in ("/quit", "/exit", ":q"):
                 break
+            if line in ("/help", "/?"):
+                print(_CLI_HELP)
+                continue
             if line == "/clear":
                 await memory.clear(CLI_CHAT_ID)
                 print("\033[2m(history cleared)\033[0m")
+                continue
+            if line == "/skills":
+                from tools.skills import list_skills
+                print(await list_skills())
+                continue
+            if line == "/facts":
+                from tools.facts import list_facts
+                print(await list_facts())
+                continue
+            if line == "/tools":
+                import tools.registry as registry
+                names = [s["function"]["name"] for s in registry.get_schemas()]
+                print("\n".join(f"  • {n}" for n in sorted(names)))
+                continue
+            if line == "/model":
+                print(f"  {settings.openai_model}")
+                continue
+            if line == "/status":
+                history = await memory.get_history(CLI_CHAT_ID, limit=500)
+                print(
+                    f"  model:   {settings.openai_model}\n"
+                    f"  history: {len(history)} messages (window={settings.history_window})\n"
+                    f"  db:      {settings.db_path}"
+                )
                 continue
 
             try:
