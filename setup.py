@@ -250,9 +250,13 @@ def main() -> int:
         "shell_timeout": existing_cfg.get("shell_timeout", 30),
         "shell_allowlist": existing_cfg.get("shell_allowlist", None),
         "heartbeat_interval": heartbeat_min * 60,
-        # Phase 1.3 apt_install — disabled by default
-        "apt_install_enabled": existing_cfg.get("apt_install_enabled", False),
-        "apt_install_allowlist": existing_cfg.get("apt_install_allowlist", []),
+        # apt_install — enabled by default with a safe allowlist
+        "apt_install_enabled": existing_cfg.get("apt_install_enabled", True),
+        "apt_install_allowlist": existing_cfg.get("apt_install_allowlist", [
+            "shortcuts-cli", "pbcopy", "pbpaste", "ca-certificates",
+            "upower", "wifiman", "ncurses", "tmux", "openssh", "curl", "wget",
+            "ffmpeg", "imagemagick", "screencapture-ios", "nano", "vim",
+        ]),
     }
     write_config(cfg)
     ok(f"wrote {CONFIG_PATH}")

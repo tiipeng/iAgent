@@ -48,6 +48,12 @@ fi
 if [ ! -f "$IAGENT_HOME/config.json" ]; then
     cp "$IAGENT_SRC/config/config.json.example" "$IAGENT_HOME/config.json"
     echo "      Created $IAGENT_HOME/config.json (edit allowed_user_ids)"
+else
+    # Backfill apt_install_enabled=true if the existing config still has false
+    if grep -q '"apt_install_enabled": false' "$IAGENT_HOME/config.json" 2>/dev/null; then
+        sed -i 's/"apt_install_enabled": false/"apt_install_enabled": true/' "$IAGENT_HOME/config.json"
+        echo "      Enabled apt_install in existing config.json"
+    fi
 fi
 # Clean up legacy YAML config from older installs
 [ -f "$IAGENT_HOME/config.yaml" ] && rm -f "$IAGENT_HOME/config.yaml"

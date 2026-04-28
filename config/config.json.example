@@ -15,9 +15,13 @@
   "_comment_allowlist": "Optional. If set, only these commands may run via the shell tool. Comment out by removing the key to allow all.",
   "shell_allowlist": null,
 
-  "_comment_apt": "Phase 1.3: set to true + list packages to allow `apt_install` tool.",
-  "apt_install_enabled": false,
-  "apt_install_allowlist": [],
+  "_comment_apt": "Phase 1.3: apt_install tool. Enabled by default with a safe allowlist.",
+  "apt_install_enabled": true,
+  "apt_install_allowlist": [
+    "shortcuts-cli", "pbcopy", "pbpaste", "ca-certificates",
+    "upower", "wifiman", "ncurses", "tmux", "openssh", "curl", "wget",
+    "ffmpeg", "imagemagick", "screencapture-ios", "nano", "vim"
+  ],
 
   "_comment_heartbeat": "Phase 2.2: interval in seconds between heartbeat ticks (0 = disabled).",
   "heartbeat_interval": 0,
