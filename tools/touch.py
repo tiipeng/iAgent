@@ -104,12 +104,15 @@ async def _xx_post(path: str, body: Optional[dict] = None) -> tuple[int, str]:
 
 # XXTouch Lite has no run-lua-string endpoint. Strategy: write a Lua snippet
 # to the currently-selected script file on disk, then POST /launch_script_file.
-# Candidate paths the script directory might live at.
+# Path confirmed from XXTouch's bundled plist: scripts live under
+# /private/var/mobile/Media/1ferver/lua/scripts/ (which is the same as
+# /var/mobile/Media/1ferver/lua/scripts/ via the standard /private symlink).
 _SCRIPT_DIRS = [
+    Path("/var/mobile/Media/1ferver/lua/scripts"),
+    Path("/private/var/mobile/Media/1ferver/lua/scripts"),
+    # Fallbacks for older / non-standard installs
+    Path("/var/jb/var/mobile/Media/1ferver/lua/scripts"),
     Path("/var/jb/var/mobile/Library/XXTouchLite/scripts"),
-    Path("/var/mobile/Library/XXTouchLite/scripts"),
-    Path("/var/jb/Library/Application Support/XXTouchLite/scripts"),
-    Path("/var/jb/var/mobile/Library/Application Support/XXTouchLite/scripts"),
 ]
 
 
@@ -138,21 +141,34 @@ async def _xxtouch_selected_script() -> Optional[Path]:
 async def _xx_run_lua(script: str) -> str:
     """Write Lua snippet to the selected script and trigger launch."""
     target = await _xxtouch_selected_script()
+    # Fallback: if get_selected_script_file failed, default to writing to
+    # main.lua under the canonical /var/mobile/Media/1ferver/lua/scripts dir.
     if target is None:
-        return (
-            "[XXTouch] couldn't locate the selected script's path on disk. "
-            "Open the XXTouch web UI at http://<ipad-ip>:46952 once and "
-            "select main.lua."
-        )
+        for d in _SCRIPT_DIRS:
+            if d.exists() or d.parent.exists():
+                target = d / "main.lua"
+                break
+        if target is None:
+            target = _SCRIPT_DIRS[0] / "main.lua"
+
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(script)
     except Exception as e:
         return f"[XXTouch] failed to write {target}: {e}"
+
+    # Tell XXTouch this is the selected script (by basename).
+    sel_rc, sel_body = await _xx_post(
+        "/select_script_file", {"filename": target.name}
+    )
+    if sel_rc != 200:
+        return f"[XXTouch] select_script_file failed ({sel_rc}): {sel_body[:200]}"
+
+    # Now launch it.
     rc, body = await _xx_post("/launch_script_file")
     if rc != 200:
         return f"[XXTouch] launch failed (HTTP {rc}): {body[:200]}"
-    return f"[XXTouch] ran {len(script)} bytes of Lua"
+    return f"[XXTouch] ran {len(script)} bytes of Lua via {target.name}"
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────
