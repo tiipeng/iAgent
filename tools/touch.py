@@ -41,9 +41,11 @@ def _find_stouch() -> Optional[str]:
 
 
 async def _xxtouch_alive() -> bool:
+    """XXTouch Lite returns HTML at /; presence of any 200 response means
+    the daemon is up. /version doesn't exist on Lite — don't probe it."""
     try:
         async with httpx.AsyncClient(timeout=1.0) as c:
-            r = await c.get(f"{_XXTOUCH_URL}/version")
+            r = await c.get(f"{_XXTOUCH_URL}/")
             return r.status_code == 200
     except Exception:
         return False
