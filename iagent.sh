@@ -281,20 +281,47 @@ case "$cmd" in
             echo "      (slash commands still work, but report 'unavailable' for those features)"
         fi
 
-        # 3. Locate ios-mcp and wire it into config.json
+        # 3. Locate the MCP stdio server binary by probing each candidate.
+        # com.witchan.ios-mcp ships 4 binaries (mcp-appinst, mcp-ldid, mcp-root,
+        # mcp-roothelper) — only one is the actual MCP server. Same for
+        # com.witchan.witchanagent. We probe each by sending a JSON-RPC
+        # initialize request and keeping the one that returns a valid response.
         echo
-        echo "[3/4] Locating ios-mcp binary…"
-        IOSMCP=""
-        for cand in /var/jb/usr/bin/ios-mcp /var/jb/usr/bin/ios-mcp-server /var/jb/usr/local/bin/ios-mcp; do
-            if [ -x "$cand" ]; then IOSMCP="$cand"; break; fi
-        done
-        if [ -z "$IOSMCP" ] && command -v dpkg >/dev/null 2>&1; then
-            IOSMCP=$(dpkg -L com.witchan.ios-mcp 2>/dev/null \
-                     | grep -E '/(bin|sbin)/' \
-                     | head -1)
-        fi
+        echo "[3/4] Locating MCP stdio server binary…"
 
-        if [ -n "$IOSMCP" ] && [ -x "$IOSMCP" ]; then
+        CANDIDATES=""
+        if command -v dpkg >/dev/null 2>&1; then
+            for pkg in com.witchan.witchanagent com.witchan.ios-mcp; do
+                for bin in $(dpkg -L "$pkg" 2>/dev/null | grep -E '/(bin|sbin|libexec)/[^/]+$'); do
+                    [ -x "$bin" ] && CANDIDATES="$CANDIDATES $bin"
+                done
+            done
+        fi
+        # Also a few well-known names in case dpkg list is empty
+        for cand in /var/jb/usr/bin/witchanagent /var/jb/usr/bin/witchan-mcp \
+                    /var/jb/usr/bin/ios-mcp /var/jb/usr/bin/ios-mcp-server; do
+            [ -x "$cand" ] && CANDIDATES="$CANDIDATES $cand"
+        done
+
+        # Probe each: send an MCP `initialize` and keep the first that replies.
+        # Timeout fast (2 s) — a real MCP server replies in milliseconds.
+        IOSMCP=""
+        echo "      Candidates:$CANDIDATES"
+        INIT_REQ='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"iAgent-probe","version":"1.0"}}}'
+        for cand in $CANDIDATES; do
+            printf "      probing %s … " "$cand"
+            response=$(printf '%s\n' "$INIT_REQ" | timeout 2 "$cand" 2>/dev/null | head -1)
+            if echo "$response" | grep -q '"jsonrpc":"2.0"' \
+               && (echo "$response" | grep -q '"result"' || echo "$response" | grep -q '"protocolVersion"'); then
+                echo "MCP ✓"
+                IOSMCP="$cand"
+                break
+            else
+                echo "not an MCP server"
+            fi
+        done
+
+        if [ -n "$IOSMCP" ]; then
             echo "      Found: $IOSMCP"
             "$PY" - "$IAGENT_HOME/config.json" "$IOSMCP" <<'PYEOF'
 import json, sys
@@ -310,8 +337,21 @@ with open(path, "w") as f:
 print(f"      ✓ wired '{binary}' into mcp_servers")
 PYEOF
         else
-            echo "      Not found. Install via Sileo or apt: sudo apt install com.witchan.ios-mcp"
-            echo "      You can add it to config.json later under 'mcp_servers'."
+            echo "      ✗ No binary in any installed package responded to MCP initialize."
+            echo "        Tools that need iOS UI control will be unavailable."
+            echo "        Removing any stale 'ios' mcp_servers entry…"
+            "$PY" - "$IAGENT_HOME/config.json" <<'PYEOF'
+import json, sys
+path = sys.argv[1]
+with open(path) as f: cfg = json.load(f)
+servers = cfg.get("mcp_servers", [])
+servers = [s for s in servers if s.get("name") != "ios"]
+cfg["mcp_servers"] = servers
+with open(path, "w") as f:
+    json.dump(cfg, f, indent=2); f.write("\n")
+print("      ✓ removed.")
+PYEOF
+            echo "        To debug: dpkg -L com.witchan.ios-mcp ; ls /var/jb/usr/bin/witchan*"
         fi
 
         # 4. Restart bot
