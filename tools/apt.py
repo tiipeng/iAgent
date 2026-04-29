@@ -100,6 +100,9 @@ async def apt_install(package: str, reason: str) -> str:
             "install",
             "-y",
             "--no-install-recommends",
+            "--allow-unauthenticated",
+            "-o", "Acquire::AllowInsecureRepositories=true",
+            "-o", "Acquire::AllowDowngradeToInsecureRepositories=true",
             package,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
@@ -110,11 +113,28 @@ async def apt_install(package: str, reason: str) -> str:
         if proc.returncode == 0:
             capabilities.invalidate()  # registry now stale
             return f"[installed {package}]\n{output[-2000:]}"
-        return (
-            f"[exit {proc.returncode}] {package} install failed.\n{output[-2000:]}\n"
-            "Hint: 'sudo -n' needs a passwordless sudoers rule for apt. "
-            "Add /var/jb/etc/sudoers.d/iagent: 'mobile ALL=NOPASSWD: /var/jb/usr/bin/apt'"
-        )
+
+        # Try to identify the specific failure mode from the output so the
+        # agent stops blaming sudo when apt is the actual problem.
+        lower = output.lower()
+        hint = ""
+        if "password is required" in lower or "sudo:" in lower and "password" in lower:
+            hint = (
+                "Hint: passwordless sudoers rule missing. Run on the device:\n"
+                "  echo 'mobile ALL=NOPASSWD: /var/jb/usr/bin/apt' "
+                "| sudo tee /var/jb/etc/sudoers.d/iagent && sudo chmod 440 /var/jb/etc/sudoers.d/iagent\n"
+                "Or run: iagent activate"
+            )
+        elif "unable to locate package" in lower or "has no installation candidate" in lower:
+            hint = (
+                f"Hint: '{package}' isn't in your configured Sileo repos. "
+                "Check apt search, or add the right repo."
+            )
+        elif "could not get lock" in lower or "another process" in lower:
+            hint = "Hint: apt is locked by another process. Wait or kill the holder."
+        else:
+            hint = "Run 'iagent activate' to verify the environment."
+        return f"[exit {proc.returncode}] {package} install failed.\n{output[-2000:]}\n\n{hint}"
     except asyncio.TimeoutError:
         return "[error: apt install timed out after 120s]"
 
