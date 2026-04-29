@@ -65,11 +65,14 @@ DEFAULTS = {
     "shell_allowlist": None,
     "apt_install_enabled": True,
     "apt_install_allowlist": [
-        "shortcuts-cli", "pbcopy", "pbpaste", "ca-certificates",
-        "upower", "wifiman", "ncurses", "tmux", "openssh", "curl", "wget",
-        "ffmpeg", "imagemagick", "screencapture-ios", "nano", "vim",
-        "uikittools", "uikittools-ng", "activator",
-        "com.witchan.ios-mcp",
+        # Confirmed available in Procursus + common third-party repos
+        "ca-certificates", "ncurses", "tmux", "openssh", "curl", "wget",
+        "ffmpeg", "imagemagick", "nano", "vim",
+        "uikittools", "uikittools-extra",
+        "xclip",
+        # NOT in any repo (don't add: upower, wifiman, screencapture-ios,
+        # pbcopy, pbpaste, ios-mcp, shortcuts-cli — agent should use the
+        # Shortcuts.app path for those features).
     ],
     "heartbeat_interval": 0,
     "heartbeat_prompt": "",

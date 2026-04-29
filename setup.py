@@ -253,12 +253,9 @@ def main() -> int:
         # apt_install — enabled by default with a safe allowlist
         "apt_install_enabled": existing_cfg.get("apt_install_enabled", True),
         "apt_install_allowlist": existing_cfg.get("apt_install_allowlist", [
-            "shortcuts-cli", "ca-certificates",
-            "ncurses", "tmux", "openssh", "curl", "wget",
+            "ca-certificates", "ncurses", "tmux", "openssh", "curl", "wget",
             "ffmpeg", "imagemagick", "nano", "vim",
-            "uikittools", "uikittools-extra", "activator", "xclip",
-            "com.witchan.ios-mcp", "com.witchan.witchanagent",
-            "com.greg0109.boardy", "me.tomt000.copylog",
+            "uikittools", "uikittools-extra", "xclip",
         ]),
         "mcp_servers": existing_cfg.get("mcp_servers", []),
     }

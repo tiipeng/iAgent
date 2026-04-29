@@ -83,8 +83,15 @@ async def get_battery() -> str:
         return sysctl
 
     return (
-        "Battery info unavailable via sysfs. "
-        "Try installing 'upower' from Sileo, or ask me to create an 'iAgent Health' Shortcut."
+        "Battery info unavailable. iOS doesn't expose battery via sysfs (Linux), "
+        "and 'upower' is not in any Procursus / Sileo repo. "
+        "Set up a Shortcut once:\n"
+        "  1. Shortcuts app → New Shortcut.\n"
+        "  2. 'Get Battery Level' action.\n"
+        "  3. 'Get Battery State' action.\n"
+        "  4. Combine into text and Return.\n"
+        "  5. Name it exactly: iAgent Health.\n"
+        "Then I can call read_health('battery')."
     )
 
 
@@ -153,10 +160,14 @@ async def take_screenshot() -> str:
             pass
 
     return (
-        "Screenshot unavailable. Options:\n"
-        "1. Create a Shortcut named 'iAgent Screenshot': "
-        "Take Screenshot → Save to File → return path\n"
-        "2. Install 'screencapture-ios' via Sileo"
+        "Screenshot unavailable. Set up a Shortcut once:\n"
+        "  1. Open the Shortcuts app on the iPad.\n"
+        "  2. New Shortcut → 'Take Screenshot' action.\n"
+        "  3. 'Save File' → save to "
+        f"{out_path} (Folder: On My iPad → iagent → workspace).\n"
+        "  4. Name it exactly: iAgent Screenshot.\n"
+        "Then ask me to take a screenshot again. "
+        "(There is NO Procursus package for screencapture — don't ask to apt install one.)"
     )
 
 
