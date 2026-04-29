@@ -138,43 +138,48 @@ async def _xxtouch_selected_script() -> Optional[Path]:
     return None
 
 
+_XXTOUCH_ROOT = "/var/mobile/Media/1ferver"
+_XXTOUCH_SCRIPTS_REL = "lua/scripts"
+
+
 async def _xx_run_lua(script: str) -> str:
-    """Write Lua snippet to the selected script and trigger launch."""
-    target = await _xxtouch_selected_script()
-    # Fallback: if get_selected_script_file failed, default to writing to
-    # main.lua under the canonical /var/mobile/Media/1ferver/lua/scripts dir.
-    if target is None:
-        for d in _SCRIPT_DIRS:
-            if d.exists() or d.parent.exists():
-                target = d / "main.lua"
-                break
-        if target is None:
-            target = _SCRIPT_DIRS[0] / "main.lua"
+    """Save Lua snippet via XXTouch's API + select + launch.
 
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(script)
-    except Exception as e:
-        return f"[XXTouch] failed to write {target}: {e}"
+    Wire confirmed from script_choose.js:
+      /write_file  body: {filename: "lua/scripts/main.lua", data: <base64>}
+      /select_script_file  body: {filename: "/var/mobile/Media/1ferver/lua/scripts/main.lua"}
+      /launch_script_file  body: {} or empty
+    """
+    import base64
+    filename = "main.lua"
+    rel_path = f"{_XXTOUCH_SCRIPTS_REL}/{filename}"
+    abs_path = f"{_XXTOUCH_ROOT}/{rel_path}"
 
-    # Tell XXTouch this is the selected script (by basename).
-    sel_rc, sel_body = await _xx_post(
-        "/select_script_file", {"filename": target.name}
-    )
-    if sel_rc != 200:
-        return f"[XXTouch] select_script_file failed ({sel_rc}): {sel_body[:200]}"
+    # 1. Write the script via the API. write_file accepts base64 in 'data'.
+    b64 = base64.b64encode(script.encode("utf-8")).decode("ascii")
+    rc, body = await _xx_post("/write_file", {"filename": rel_path, "data": b64})
+    if rc != 200 or '"code":0' not in body:
+        return f"[XXTouch] write_file failed ({rc}): {body[:200]}"
 
-    # Now launch it. XXTouch closes the HTTP connection the moment the Lua
-    # interpreter starts, so a clean 200 isn't guaranteed — anything that's
-    # not an explicit error envelope counts as 'we kicked it off'.
-    rc, body = await _xx_post("/launch_script_file")
-    is_error = (
-        rc not in (200, -1)  # -1 means our httpx wrapper saw an exception (likely connection reset)
-        or (rc == 200 and '"code":' in body and '"code":0' not in body)
-    )
-    if is_error:
-        return f"[XXTouch] launch failed (HTTP {rc}): {body[:200]}"
-    return f"[XXTouch] launched {len(script)}-byte Lua script ({target.name})"
+    # 2. Select that exact script (XXTouch wants the full absolute path here).
+    rc, body = await _xx_post("/select_script_file", {"filename": abs_path})
+    if rc != 200 or '"code":0' not in body:
+        return f"[XXTouch] select_script_file failed ({rc}): {body[:200]}"
+
+    # 3. Launch it. XXTouch responses we tolerate as success:
+    #    HTTP 200 with code:0  → kicked off
+    #    httpx connection error → daemon dropped the connection on launch (normal)
+    #    HTTP 200 with code:3 ("already running") → previous script still going
+    rc, body = await _xx_post("/launch_script_file", {})
+    if rc == -1:
+        return f"[XXTouch] launched {len(script)}-byte Lua (connection dropped — normal)"
+    if rc == 200:
+        if '"code":0' in body:
+            return f"[XXTouch] launched {len(script)}-byte Lua via {filename}"
+        if '"code":3' in body:
+            return "[XXTouch] previous script still running — request queued / collided"
+        return f"[XXTouch] unexpected response: {body[:200]}"
+    return f"[XXTouch] launch failed (HTTP {rc}): {body[:200]}"
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────
