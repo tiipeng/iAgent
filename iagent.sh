@@ -205,16 +205,16 @@ case "$cmd" in
                     if sudo -n /var/jb/usr/bin/apt --version >/dev/null 2>&1; then
                         echo "      ✓ verified — passwordless apt works"
                     else
-                        echo "      ✗ rule added but sudo still wants a password."
-                        echo "      Diagnose with:  sudo -l -U mobile | grep apt"
-                        echo "      Or run apt manually outside the agent until this is sorted."
+                        echo "      ⚠ rule added but sudo -n still asks for a password."
+                        echo "        Step 2 below will prompt you once and continue regardless."
+                        echo "        Diagnose later with:  sudo -l -U mobile | grep apt"
                     fi
                     ;;
                 *) echo "      Skipped — apt_install will require a password." ;;
             esac
         fi
 
-        # 2. Install support packages (best-effort; missing ones are skipped)
+        # 2. Install support packages
         echo
         echo "[2/4] Installing support packages…"
 
@@ -223,23 +223,43 @@ case "$cmd" in
         APT_OPTS="-o Acquire::AllowInsecureRepositories=true \
 -o Acquire::AllowDowngradeToInsecureRepositories=true"
 
+        # Pick sudo mode: -n if passwordless works, plain sudo otherwise.
+        # Plain sudo will prompt once and cache credentials for the loop below.
+        if sudo -n /var/jb/usr/bin/apt --version >/dev/null 2>&1; then
+            SUDO="sudo -n"
+        else
+            echo "      (passwordless sudo not active — you'll be prompted once)"
+            SUDO="sudo"
+        fi
+
         printf "      apt update… "
-        if sudo -n /var/jb/usr/bin/apt $APT_OPTS update >/dev/null 2>&1; then
+        if $SUDO /var/jb/usr/bin/apt $APT_OPTS update >/dev/null 2>&1; then
             echo "ok"
         else
             echo "had warnings (unsigned repos) — continuing anyway"
         fi
 
+        installed=0; skipped=0; failed=0
         for pkg in com.witchan.ios-mcp uikittools-ng upower wifiman screencapture-ios pbcopy; do
             printf "      installing %s … " "$pkg"
-            if sudo -n /var/jb/usr/bin/apt $APT_OPTS install -y \
-                    --allow-unauthenticated --no-install-recommends "$pkg" \
-                    >/dev/null 2>&1; then
-                echo "ok"
+            output=$($SUDO /var/jb/usr/bin/apt $APT_OPTS install -y \
+                    --allow-unauthenticated --no-install-recommends "$pkg" 2>&1)
+            rc=$?
+            if [ $rc -eq 0 ]; then
+                if echo "$output" | grep -q "is already the newest version"; then
+                    echo "already installed"; skipped=$((skipped+1))
+                else
+                    echo "ok"; installed=$((installed+1))
+                fi
+            elif echo "$output" | grep -q "Unable to locate package"; then
+                echo "not in any configured Sileo repo"
+                skipped=$((skipped+1))
             else
-                echo "skipped (not in repo or already installed)"
+                echo "FAILED ($rc) — $(echo "$output" | tail -1)"
+                failed=$((failed+1))
             fi
         done
+        echo "      → $installed installed, $skipped skipped, $failed failed"
 
         # 3. Locate ios-mcp and wire it into config.json
         echo
