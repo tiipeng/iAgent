@@ -26,12 +26,9 @@ import tools.file_io  # noqa: F401
 import tools.http_fetch  # noqa: F401
 import tools.apt  # noqa: F401
 import tools.skills  # noqa: F401
-import tools.shortcuts  # noqa: F401
 import tools.clipboard  # noqa: F401
-import tools.notify  # noqa: F401
 import tools.facts  # noqa: F401
 import tools.photo  # noqa: F401
-import tools.ios  # noqa: F401
 import tools.device  # noqa: F401
 import tools.automation  # noqa: F401
 import tools.native  # noqa: F401

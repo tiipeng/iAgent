@@ -1,19 +1,18 @@
-"""Device info tools — battery, screenshot, brightness, device identity.
+"""Device info tools — battery, device identity, sensors.
 
-These run directly via shell or Shortcuts so the agent never has to guess
-the right command. Always available; no extra packages required for basic use.
+All shell-based, no Shortcuts dependency. Screenshots and brightness
+control were Shortcut-only and have been removed (use screenshot_xx
+and look_at_screen from tools/touch.py for screen capture).
 """
 from __future__ import annotations
 
 import asyncio
 import os
-import shutil
 from pathlib import Path
 
 from tools.registry import register
 
 _IAGENT_HOME = Path(os.environ.get("IAGENT_HOME", Path.home() / ".iagent"))
-_SHORTCUTS_BIN = "/var/jb/usr/bin/shortcuts"
 
 
 _SHELL_CANDIDATES = ["/var/jb/bin/sh", "/bin/sh", "/var/jb/usr/bin/sh"]
@@ -40,13 +39,6 @@ async def _sh(cmd: str, timeout: float = 8.0) -> str:
         return "(timed out)"
     except Exception as exc:
         return f"(error: {exc})"
-
-
-def _shortcuts_bin() -> str:
-    for p in (_SHORTCUTS_BIN, "shortcuts"):
-        if shutil.which(p):
-            return p
-    return ""
 
 
 # ── Battery ───────────────────────────────────────────────────────────────
@@ -83,15 +75,9 @@ async def get_battery() -> str:
         return sysctl
 
     return (
-        "Battery info unavailable. iOS doesn't expose battery via sysfs (Linux), "
-        "and 'upower' is not in any Procursus / Sileo repo. "
-        "Set up a Shortcut once:\n"
-        "  1. Shortcuts app → New Shortcut.\n"
-        "  2. 'Get Battery Level' action.\n"
-        "  3. 'Get Battery State' action.\n"
-        "  4. Combine into text and Return.\n"
-        "  5. Name it exactly: iAgent Health.\n"
-        "Then I can call read_health('battery')."
+        "Battery info unavailable on this device. iOS doesn't expose battery "
+        "via Linux sysfs and 'upower' isn't packaged in any common iOS repo. "
+        "If your XXTouch install exposes a battery API, ask me to read it via Lua."
     )
 
 
@@ -117,58 +103,8 @@ async def get_device_info() -> str:
     return "\n".join(lines) or "Device info unavailable"
 
 
-# ── Screenshot ────────────────────────────────────────────────────────────
-
-@register({
-    "name": "take_screenshot",
-    "description": (
-        "Take a screenshot of the current screen. "
-        "Saves to $IAGENT_HOME/workspace/screenshot.png and returns the path. "
-        "Requires a Shortcut named 'iAgent Screenshot': "
-        "Take Screenshot → Save to File ($IAGENT_HOME/workspace/screenshot.png) → return path. "
-        "Alternatively, if 'screencapture-ios' is installed via Sileo, uses that."
-    ),
-    "parameters": {"type": "object", "properties": {}, "required": []},
-})
-async def take_screenshot() -> str:
-    out_path = str(_IAGENT_HOME / "workspace" / "screenshot.png")
-
-    # Try native CLI tool first (Procursus package: screencapture-ios or similar)
-    for candidate in ("/var/jb/usr/bin/screencapture", "screencapture"):
-        if shutil.which(candidate):
-            result = await _sh(f"{candidate} -x {out_path}")
-            if Path(out_path).exists():
-                return f"Screenshot saved to {out_path}"
-            return f"screencapture ran but file not found: {result}"
-
-    # Fallback: Shortcuts bridge
-    sc = _shortcuts_bin()
-    if sc:
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                sc, "run", "iAgent Screenshot",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
-            out = stdout.decode(errors="replace").strip()
-            if Path(out_path).exists():
-                return f"Screenshot saved to {out_path}"
-            if out:
-                return out
-        except asyncio.TimeoutError:
-            pass
-
-    return (
-        "Screenshot unavailable. Set up a Shortcut once:\n"
-        "  1. Open the Shortcuts app on the iPad.\n"
-        "  2. New Shortcut → 'Take Screenshot' action.\n"
-        "  3. 'Save File' → save to "
-        f"{out_path} (Folder: On My iPad → iagent → workspace).\n"
-        "  4. Name it exactly: iAgent Screenshot.\n"
-        "Then ask me to take a screenshot again. "
-        "(There is NO Procursus package for screencapture — don't ask to apt install one.)"
-    )
+# Screenshots are handled by tools/touch.py (screenshot_xx, look_at_screen)
+# via XXTouch's screen.image():png_data() API. No Shortcut path needed.
 
 
 # ── Sensors / sysctl ──────────────────────────────────────────────────────
@@ -252,47 +188,4 @@ async def get_sensor(topic: str) -> str:
     return "\n".join(lines)
 
 
-# ── Screen brightness ─────────────────────────────────────────────────────
-
-@register({
-    "name": "set_brightness",
-    "description": (
-        "Set the screen brightness (0.0 = off, 1.0 = full). "
-        "Requires a Shortcut named 'iAgent Brightness' that accepts a number (0–1) as input."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "level": {
-                "type": "number",
-                "description": "Brightness level between 0.0 and 1.0",
-            },
-        },
-        "required": ["level"],
-    },
-})
-async def set_brightness(level: float) -> str:
-    level = max(0.0, min(1.0, level))
-    sc = _shortcuts_bin()
-    if not sc:
-        return "[set_brightness] shortcuts CLI not found — install shortcuts-cli via Sileo"
-
-    import tempfile, os
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-        f.write(str(round(level, 2)))
-        tmp = f.name
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            sc, "run", "iAgent Brightness", "--input-path", tmp,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await asyncio.wait_for(proc.communicate(), timeout=10.0)
-        return f"Brightness set to {int(level * 100)}%"
-    except asyncio.TimeoutError:
-        return "[set_brightness] timed out"
-    finally:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
+# Screen brightness control was Shortcut-only — removed.

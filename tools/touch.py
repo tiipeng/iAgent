@@ -189,8 +189,8 @@ async def _xx_run_lua(script: str) -> str:
     "description": (
         "Send a synthetic tap at screen coordinates (x, y). "
         "Origin is top-left. Coordinates in pixels (XXTouch backend) or "
-        "points (stouch backend). Use take_screenshot to see the screen, "
-        "then map identified pixel coords to tap()."
+        "points (stouch backend). Use look_at_screen / screenshot_xx first "
+        "to see the screen, then map identified pixel coords to tap()."
     ),
     "parameters": {
         "type": "object",
@@ -349,9 +349,8 @@ _SCREENSHOT_PATH = "/var/mobile/Media/1ferver/lua/scripts/iagent_screen.png"
     "name": "screenshot_xx",
     "description": (
         "Capture the current iPad screen using XXTouch's screen API. "
-        "Saves a PNG to the workspace and returns the path. Faster and "
-        "more reliable than the Shortcut-based take_screenshot — "
-        "no user interaction needed. Use this to see what's on screen."
+        "Saves a PNG to the workspace and returns the path. "
+        "No user interaction needed. Use this to see what's on screen."
     ),
     "parameters": {"type": "object", "properties": {}, "required": []},
 })

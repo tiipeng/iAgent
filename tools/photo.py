@@ -1,21 +1,20 @@
-"""Photo / Camera tools — take photos, fetch recent photos, describe with vision.
+"""Photo tools — read library, describe with vision, send to Telegram.
 
-Three access paths, in preference order:
-  1. Direct filesystem — /var/mobile/Media/DCIM/ — works without Shortcuts
-  2. iOS Shortcuts CLI — for camera capture and Photos library API access
-  3. None — graceful degradation with a setup hint
+All Shortcut-based code paths were removed. What's here works
+without iOS Shortcuts on rootless Dopamine:
+  read_recent_photos  — direct read of /var/mobile/Media/DCIM/
+  describe_photo      — GPT-4o vision (HTTP API)
+  send_photo          — posts to active Telegram chat via bot API
 
-`send_photo` posts a file directly to the active Telegram chat using the
-bot's existing token, so the user can SEE the image in the chat.
+For "take a new photo" (camera capture) the agent should use the
+XXTouch screen tooling or ask the user to take one — there is no
+non-Shortcut path to the camera and we don't pretend there is.
 """
 from __future__ import annotations
 
-import asyncio
 import base64
 import contextvars
 import os
-import shutil
-import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -24,7 +23,6 @@ import httpx
 from tools.registry import register
 
 _IAGENT_HOME = Path(os.environ.get("IAGENT_HOME", Path.home() / ".iagent"))
-_SHORTCUTS_BIN = "/var/jb/usr/bin/shortcuts"
 _MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB — GPT-4o limit before quality degrades
 
 # DCIM lives under user mobile's media root (rootless) — direct read access.
@@ -60,76 +58,11 @@ def _find_dcim() -> Optional[Path]:
     return None
 
 
-def _shortcuts_bin() -> str:
-    if shutil.which(_SHORTCUTS_BIN):
-        return _SHORTCUTS_BIN
-    if shutil.which("shortcuts"):
-        return "shortcuts"
-    return ""
-
-
-async def _run_shortcut(name: str, input_text: str = "") -> tuple[int, str, str]:
-    """Run a shortcut, return (returncode, stdout, stderr)."""
-    bin_path = _shortcuts_bin()
-    if not bin_path:
-        return -1, "", "shortcuts CLI not found — install via Sileo: shortcuts-cli"
-
-    cmd = [bin_path, "run", name]
-    tmp_path: Optional[str] = None
-
-    if input_text:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-            f.write(input_text)
-            tmp_path = f.name
-        cmd += ["--input-path", tmp_path]
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60.0)
-        return (
-            proc.returncode or 0,
-            stdout.decode(errors="replace").strip(),
-            stderr.decode(errors="replace").strip(),
-        )
-    except asyncio.TimeoutError:
-        return -1, "", f"Shortcut '{name}' timed out after 60s"
-    finally:
-        if tmp_path:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-
-
-@register({
-    "name": "take_photo",
-    "description": (
-        "Take a photo with the iPad camera via iOS Shortcuts. "
-        "Returns the path of the saved image in the workspace. "
-        "Requires a Shortcut named 'iAgent Take Photo': "
-        "Take Photo → Save to File ($IAGENT_HOME/workspace/photo.jpg) → return path."
-    ),
-    "parameters": {"type": "object", "properties": {}, "required": []},
-})
-async def take_photo() -> str:
-    rc, out, err = await _run_shortcut("iAgent Take Photo")
-    if rc != 0:
-        return f"[take_photo failed] {err or out}\nMake sure the Shortcut 'iAgent Take Photo' exists."
-    path = out or str(_IAGENT_HOME / "workspace" / "photo.jpg")
-    return f"Photo saved to: {path}"
-
-
 @register({
     "name": "read_recent_photos",
     "description": (
-        "Fetch the N most recent photos from the device's photo library. "
-        "First tries direct filesystem access at /var/mobile/Media/DCIM/ "
-        "(works without Shortcuts on jailbroken iOS). Falls back to the "
-        "'iAgent Recent Photos' Shortcut if DCIM is empty or unreadable. "
+        "Fetch the N most recent photos from the device's photo library "
+        "by reading /var/mobile/Media/DCIM/ directly. "
         "Returns newline-separated absolute file paths sorted newest first."
     ),
     "parameters": {
@@ -145,36 +78,27 @@ async def take_photo() -> str:
 })
 async def read_recent_photos(limit: int = 5) -> str:
     limit = max(1, min(limit, 20))
-
     dcim = _find_dcim()
-    if dcim:
-        try:
-            photos = []
-            for p in dcim.rglob("*"):
-                if p.is_file() and p.suffix.lower() in _PHOTO_EXTS:
-                    photos.append(p)
-            photos.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-            top = photos[:limit]
-            if top:
-                return "\n".join(str(p) for p in top)
-        except (PermissionError, OSError) as e:
-            return f"[read_recent_photos] DCIM access blocked: {e}"
-
-    rc, out, err = await _run_shortcut("iAgent Recent Photos", str(limit))
-    if rc != 0:
-        return (
-            f"[read_recent_photos] No DCIM access and Shortcut failed: {err or out}\n"
-            "Check that /var/mobile/Media/DCIM/ exists or create the "
-            "'iAgent Recent Photos' Shortcut."
-        )
-    return out or "No photos found."
+    if not dcim:
+        return "[read_recent_photos] /var/mobile/Media/DCIM not found"
+    try:
+        photos = [
+            p for p in dcim.rglob("*")
+            if p.is_file() and p.suffix.lower() in _PHOTO_EXTS
+        ]
+    except (PermissionError, OSError) as e:
+        return f"[read_recent_photos] DCIM access blocked: {e}"
+    photos.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    if not photos:
+        return "(DCIM is empty)"
+    return "\n".join(str(p) for p in photos[:limit])
 
 
 @register({
     "name": "send_photo",
     "description": (
         "Send a photo file to the user via Telegram so they can see it in the chat. "
-        "Pass a local file path (e.g. one returned by read_recent_photos or take_photo). "
+        "Pass a local file path (e.g. one returned by read_recent_photos or screenshot_xx). "
         "Optional caption shows below the image."
     ),
     "parameters": {
@@ -225,7 +149,7 @@ async def send_photo(path: str, caption: str = "") -> str:
     "name": "describe_photo",
     "description": (
         "Send an image file to GPT-4o vision and get a description. "
-        "Pass the local file path (e.g. from take_photo or read_recent_photos). "
+        "Pass the local file path (e.g. from read_recent_photos or screenshot_xx). "
         "Returns the model's textual description of the image."
     ),
     "parameters": {
@@ -255,7 +179,7 @@ async def describe_photo(path: str, question: str = "") -> str:
     if len(data) > _MAX_IMAGE_BYTES:
         return (
             f"[describe_photo] Image too large ({len(data) // 1024} KB). "
-            "Resize to under 5 MB first, e.g.: sips -Z 1024 <file>"
+            "Resize to under 5 MB first."
         )
 
     suffix = img_path.suffix.lower().lstrip(".")
