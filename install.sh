@@ -70,9 +70,10 @@ DEFAULTS = {
         "ffmpeg", "imagemagick", "nano", "vim",
         "uikittools", "uikittools-extra",
         "xclip",
-        # NOT in any repo (don't add: upower, wifiman, screencapture-ios,
-        # pbcopy, pbpaste, ios-mcp, shortcuts-cli — agent should use the
-        # Shortcuts.app path for those features).
+        # Synthetic input (SimulateTouch, Activator) — package names vary by
+        # repo, agent will run apt_search to find the right one
+        "SimulateTouch", "simulatetouch", "com.luki120.simulatetouch",
+        "libactivator", "activator",
     ],
     "heartbeat_interval": 0,
     "heartbeat_prompt": "",

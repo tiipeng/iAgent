@@ -20,7 +20,9 @@
   "apt_install_allowlist": [
     "ca-certificates", "ncurses", "tmux", "openssh", "curl", "wget",
     "ffmpeg", "imagemagick", "nano", "vim",
-    "uikittools", "uikittools-extra", "xclip"
+    "uikittools", "uikittools-extra", "xclip",
+    "SimulateTouch", "simulatetouch", "com.luki120.simulatetouch",
+    "libactivator", "activator"
   ],
 
   "_comment_heartbeat": "Phase 2.2: interval in seconds between heartbeat ticks (0 = disabled).",

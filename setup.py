@@ -256,6 +256,8 @@ def main() -> int:
             "ca-certificates", "ncurses", "tmux", "openssh", "curl", "wget",
             "ffmpeg", "imagemagick", "nano", "vim",
             "uikittools", "uikittools-extra", "xclip",
+            "SimulateTouch", "simulatetouch", "com.luki120.simulatetouch",
+            "libactivator", "activator",
         ]),
         "mcp_servers": existing_cfg.get("mcp_servers", []),
     }
