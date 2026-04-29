@@ -164,11 +164,17 @@ async def _xx_run_lua(script: str) -> str:
     if sel_rc != 200:
         return f"[XXTouch] select_script_file failed ({sel_rc}): {sel_body[:200]}"
 
-    # Now launch it.
+    # Now launch it. XXTouch closes the HTTP connection the moment the Lua
+    # interpreter starts, so a clean 200 isn't guaranteed — anything that's
+    # not an explicit error envelope counts as 'we kicked it off'.
     rc, body = await _xx_post("/launch_script_file")
-    if rc != 200:
+    is_error = (
+        rc not in (200, -1)  # -1 means our httpx wrapper saw an exception (likely connection reset)
+        or (rc == 200 and '"code":' in body and '"code":0' not in body)
+    )
+    if is_error:
         return f"[XXTouch] launch failed (HTTP {rc}): {body[:200]}"
-    return f"[XXTouch] ran {len(script)} bytes of Lua via {target.name}"
+    return f"[XXTouch] launched {len(script)}-byte Lua script ({target.name})"
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────
