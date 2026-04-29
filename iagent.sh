@@ -171,23 +171,47 @@ case "$cmd" in
         echo
 
         # 1. Sudoers rule for passwordless apt
-        SUDOERS=/var/jb/etc/sudoers.d/iagent
-        if [ ! -f "$SUDOERS" ]; then
-            echo "[1/4] Adding passwordless apt sudoers rule (one-time, needs your password once)…"
-            echo "      File: $SUDOERS"
-            echo "      Rule: mobile ALL=NOPASSWD: /var/jb/usr/bin/apt"
-            printf "      Continue? [Y/n] "
+        echo "[1/4] Setting up passwordless apt…"
+
+        # Check if it already works
+        if sudo -n /var/jb/usr/bin/apt --version >/dev/null 2>&1; then
+            echo "      ✓ already working — sudo -n apt succeeds"
+        else
+            APT_BIN=$(command -v apt 2>/dev/null || echo /var/jb/usr/bin/apt)
+            APT_GET=$(command -v apt-get 2>/dev/null || echo /var/jb/usr/bin/apt-get)
+            MAIN_SUDOERS=/var/jb/etc/sudoers
+            DROPIN=/var/jb/etc/sudoers.d/iagent
+            RULE_LINE="mobile ALL=NOPASSWD: $APT_BIN, $APT_GET"
+
+            echo "      apt: $APT_BIN"
+            echo "      Rule: $RULE_LINE"
+            printf "      Add it now? (will prompt for your password once) [Y/n] "
             read -r answer
             case "$answer" in
                 ""|y|Y|yes|YES)
-                    echo 'mobile ALL=NOPASSWD: /var/jb/usr/bin/apt' | sudo tee "$SUDOERS" >/dev/null
-                    sudo chmod 440 "$SUDOERS"
-                    echo "      ✓ sudoers rule added"
+                    # Write to /etc/sudoers.d (modern style)
+                    echo "$RULE_LINE" | sudo tee "$DROPIN" >/dev/null
+                    sudo chmod 440 "$DROPIN"
+
+                    # Ensure main sudoers actually includes sudoers.d
+                    if ! sudo grep -qE '^[#@]includedir /var/jb/etc/sudoers.d' "$MAIN_SUDOERS" 2>/dev/null \
+                       && ! sudo grep -qE '^[#@]includedir /etc/sudoers.d' "$MAIN_SUDOERS" 2>/dev/null; then
+                        echo "      sudoers main file does not include sudoers.d — adding rule directly there as well"
+                        if ! sudo grep -qF "$RULE_LINE" "$MAIN_SUDOERS" 2>/dev/null; then
+                            echo "$RULE_LINE" | sudo tee -a "$MAIN_SUDOERS" >/dev/null
+                        fi
+                    fi
+                    sudo -k     # flush cached credentials so the test below is honest
+                    if sudo -n /var/jb/usr/bin/apt --version >/dev/null 2>&1; then
+                        echo "      ✓ verified — passwordless apt works"
+                    else
+                        echo "      ✗ rule added but sudo still wants a password."
+                        echo "      Diagnose with:  sudo -l -U mobile | grep apt"
+                        echo "      Or run apt manually outside the agent until this is sorted."
+                    fi
                     ;;
-                *) echo "      Skipped — apt_install will fail until you add it manually." ;;
+                *) echo "      Skipped — apt_install will require a password." ;;
             esac
-        else
-            echo "[1/4] Sudoers rule already in place: $SUDOERS"
         fi
 
         # 2. Install support packages (best-effort; missing ones are skipped)
