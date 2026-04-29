@@ -18,11 +18,12 @@
   "_comment_apt": "Phase 1.3: apt_install tool. Enabled by default with a safe allowlist.",
   "apt_install_enabled": true,
   "apt_install_allowlist": [
-    "shortcuts-cli", "pbcopy", "pbpaste", "ca-certificates",
-    "upower", "wifiman", "ncurses", "tmux", "openssh", "curl", "wget",
-    "ffmpeg", "imagemagick", "screencapture-ios", "nano", "vim",
-    "uikittools", "uikittools-ng", "activator",
-    "com.witchan.ios-mcp"
+    "shortcuts-cli", "ca-certificates",
+    "ncurses", "tmux", "openssh", "curl", "wget",
+    "ffmpeg", "imagemagick", "nano", "vim",
+    "uikittools", "uikittools-extra", "activator", "xclip",
+    "com.witchan.ios-mcp", "com.witchan.witchanagent",
+    "com.greg0109.boardy", "me.tomt000.copylog"
   ],
 
   "_comment_heartbeat": "Phase 2.2: interval in seconds between heartbeat ticks (0 = disabled).",

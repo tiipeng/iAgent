@@ -270,9 +270,9 @@ case "$cmd" in
         # Required: the MCP server itself
         try_install com.witchan.ios-mcp yes
 
-        # Optional: the slash-command helpers. If missing the bot still works,
-        # only /battery /wifi etc. degrade.
-        for pkg in uikittools-ng upower wifiman screencapture-ios pbcopy; do
+        # Optional: real package names that exist in common Procursus + tweak
+        # repos. Anything not in your configured repos is reported and skipped.
+        for pkg in uikittools uikittools-extra com.witchan.witchanagent; do
             try_install "$pkg" no
         done
         echo "      → $installed installed, $skipped skipped, $failed failed"
