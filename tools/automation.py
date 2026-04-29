@@ -321,11 +321,30 @@ async def create_shortcut(name: str, actions: list) -> str:
     with out_path.open("wb") as f:
         plistlib.dump(workflow, f, fmt=plistlib.FMT_BINARY)
 
-    return (
-        f"Shortcut file generated: {out_path}\n\n"
-        f"To install:\n"
-        f"1. (one-time) Settings → Shortcuts → enable 'Allow Untrusted Shortcuts'\n"
-        f"2. Open Files app, navigate to On My iPad/iagent/workspace/, "
-        f"tap '{out_path.name}' and confirm import.\n\n"
-        f"Or run: uiopen file://{out_path}"
-    )
+    # Try to auto-launch the Shortcuts import dialog via uiopen.
+    # This brings up the "Add Shortcut" preview where the user only needs
+    # to tap once. Without uiopen we fall back to the manual Files-app path.
+    uiopen = _which("uiopen")
+    auto_launched = False
+    if uiopen:
+        import_url = f"shortcuts://import-shortcut?url=file://{out_path}"
+        rc, _out = await _run([uiopen, import_url], timeout=5.0)
+        auto_launched = (rc == 0)
+
+    msg = f"Shortcut file generated: {out_path}\n\n"
+    if auto_launched:
+        msg += (
+            "✓ Opened Shortcuts import dialog on the iPad. "
+            "Tap 'Add Shortcut' (or 'Add Untrusted Shortcut') to install.\n\n"
+            "If nothing happened: enable Settings → Shortcuts → "
+            "'Allow Untrusted Shortcuts' (one-time), then ask me to do this again."
+        )
+    else:
+        msg += (
+            "To install:\n"
+            "1. (one-time) Settings → Shortcuts → 'Allow Untrusted Shortcuts'\n"
+            f"2. Open Files app → On My iPad → iagent → workspace → tap '{out_path.name}'\n"
+            "Or in Terminal: "
+            f"uiopen 'shortcuts://import-shortcut?url=file://{out_path}'"
+        )
+    return msg
