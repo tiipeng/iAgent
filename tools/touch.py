@@ -338,3 +338,91 @@ async def touch_backend_status() -> str:
     if backend == "xxtouch":
         return f"Active: XXTouch HTTP API at {_XXTOUCH_URL}"
     return _NO_BACKEND_MSG
+
+
+# ── Screen capture via XXTouch ────────────────────────────────────────────
+
+_SCREENSHOT_PATH = "/var/mobile/Media/1ferver/lua/scripts/iagent_screen.png"
+
+
+@register({
+    "name": "screenshot_xx",
+    "description": (
+        "Capture the current iPad screen using XXTouch's screen API. "
+        "Saves a PNG to the workspace and returns the path. Faster and "
+        "more reliable than the Shortcut-based take_screenshot — "
+        "no user interaction needed. Use this to see what's on screen."
+    ),
+    "parameters": {"type": "object", "properties": {}, "required": []},
+})
+async def screenshot_xx() -> str:
+    if await _backend() != "xxtouch":
+        return _NO_BACKEND_MSG
+    # XXTouch's screen module: screen.image() returns an image object,
+    # which has a :save_to_png(path) method. The exact API name varies
+    # slightly by version; we try the common forms in one Lua snippet.
+    lua = (
+        f'local path = "{_SCREENSHOT_PATH}"\n'
+        f'nLog("iagent screenshot to " .. path)\n'
+        f"local ok, err = pcall(function()\n"
+        f"  local img = screen.image()\n"
+        f"  if img.save_to_png then\n"
+        f"    img:save_to_png(path)\n"
+        f"  elseif img.save then\n"
+        f"    img:save(path)\n"
+        f"  elseif screen.snap then\n"
+        f"    screen.snap(path)\n"
+        f"  else\n"
+        f'    error("no known XXTouch screen save method")\n'
+        f"  end\n"
+        f"end)\n"
+        f'if not ok then nLog("screenshot error: " .. tostring(err)) end\n'
+    )
+    out = await _xx_run_lua(lua)
+    # Wait briefly for the file to appear
+    import asyncio as _a
+    for _ in range(10):
+        if Path(_SCREENSHOT_PATH).exists():
+            return _SCREENSHOT_PATH
+        await _a.sleep(0.1)
+    return f"[screenshot_xx] Lua ran but {_SCREENSHOT_PATH} did not appear: {out}"
+
+
+@register({
+    "name": "look_at_screen",
+    "description": (
+        "Take a screenshot, send it to the user via Telegram, AND ask GPT-4o "
+        "vision to describe what's visible. Use this for 'what's on screen?', "
+        "'find the X button', 'identify the WiFi cell location', etc. "
+        "Optional question targets the description (e.g. 'where is the search bar?')."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "question": {
+                "type": "string",
+                "description": "Optional specific question to answer about the screen",
+            },
+        },
+        "required": [],
+    },
+})
+async def look_at_screen(question: str = "") -> str:
+    path = await screenshot_xx()
+    if not Path(path).exists():
+        return path  # error message
+
+    # Send to Telegram chat (so the user sees the same image the agent sees)
+    try:
+        from tools.photo import send_photo, describe_photo
+    except ImportError:
+        return f"Screenshot at {path}"
+
+    sent = await send_photo(path, caption="Screen snapshot")
+    described = await describe_photo(
+        path,
+        question or "Describe everything visible on this iPad screen, "
+                    "including UI elements, text, buttons, and their approximate "
+                    "pixel coordinates (x, y) for anything tappable.",
+    )
+    return f"{sent}\n\n{described}"
