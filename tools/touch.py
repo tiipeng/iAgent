@@ -358,19 +358,38 @@ _SCREENSHOT_PATH = "/var/mobile/Media/1ferver/lua/scripts/iagent_screen.png"
 async def screenshot_xx() -> str:
     if await _backend() != "xxtouch":
         return _NO_BACKEND_MSG
-    # Confirmed API: screen.image() returns an image, :png_data() returns
-    # the PNG bytes. We then write the bytes to disk via Lua io.
+    # Confirmed API: screen.image() returns an image; :png_data() returns
+    # PNG bytes. We rotate to match current device orientation so the
+    # output looks upright regardless of how the iPad is held.
+    # XXTouch orientations: 1=portrait, 2=upside-down, 3=landscape-left,
+    # 4=landscape-right (verified from screen.lua keycodemap notes).
     lua = (
         f'local path = "{_SCREENSHOT_PATH}"\n'
         f'nLog("iagent screenshot to " .. path)\n'
         f"local ok, err = pcall(function()\n"
         f"  local img = screen.image()\n"
+        f"  local ori = 1\n"
+        f"  if screen.orientation then ori = screen.orientation() end\n"
+        f'  nLog("orientation=" .. tostring(ori))\n'
+        f"  local angle = 0\n"
+        f"  if ori == 2 then angle = 180\n"
+        f"  elseif ori == 3 then angle = 90\n"
+        f"  elseif ori == 4 then angle = -90 end\n"
+        f"  if angle ~= 0 then\n"
+        f"    if img.rotate then\n"
+        f"      img = img:rotate(angle)\n"
+        f"    elseif img.rotate_right and angle == 90 then\n"
+        f"      img = img:rotate_right()\n"
+        f"    elseif img.rotate_left and angle == -90 then\n"
+        f"      img = img:rotate_left()\n"
+        f"    end\n"
+        f"  end\n"
         f"  local data = img:png_data()\n"
         f'  local f, oerr = io.open(path, "wb")\n'
         f"  if not f then error(oerr) end\n"
         f"  f:write(data)\n"
         f"  f:close()\n"
-        f'  nLog("ok " .. #data .. " bytes")\n'
+        f'  nLog("ok " .. #data .. " bytes (rot " .. angle .. ")")\n'
         f"end)\n"
         f'if not ok then nLog("screenshot error: " .. tostring(err)) end\n'
     )
