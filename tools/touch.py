@@ -207,8 +207,9 @@ async def tap(x: int, y: int) -> str:
         rc, out = await _stouch(["touch", str(x), str(y)])
         return f"Tapped ({x}, {y})" if rc == 0 else f"[tap] {out}"
     if backend == "xxtouch":
-        # XXTouch Lua API — `touch` global object
-        script = f"touch.on(1, {x}, {y}); usleep(50000); touch.off(1)"
+        # XXTouch Lite has touch.tap(x, y) as a complete tap (down+up internally).
+        # No usleep needed — that global doesn't exist in their Lua sandbox.
+        script = f'nLog("iagent tap {x},{y}"); touch.tap({x}, {y})'
         out = await _xx_run_lua(script)
         return f"Tapped ({x}, {y}) via XXTouch — {out}"
     return _NO_BACKEND_MSG
@@ -239,19 +240,29 @@ async def swipe(from_x: int, from_y: int, to_x: int, to_y: int, duration: float 
                                   str(to_x), str(to_y), str(duration)])
         return f"Swiped {from_x},{from_y} → {to_x},{to_y}" if rc == 0 else f"[swipe] {out}"
     if backend == "xxtouch":
-        steps = max(8, int(duration * 50))
-        per_step_us = max(2000, int((duration * 1_000_000) / steps))
-        script = f"""
-        local x1, y1, x2, y2, n = {from_x}, {from_y}, {to_x}, {to_y}, {steps}
-        touch.on(1, x1, y1)
-        for i = 1, n do
-            local fx = x1 + (x2 - x1) * i / n
-            local fy = y1 + (y2 - y1) * i / n
-            touch.move(1, fx, fy)
-            usleep({per_step_us})
-        end
-        touch.off(1)
-        """
+        # XXTouch Lite's touch namespace + ms-precision sleep names. The function
+        # touch.swipe may exist; if not, the agent can fall back to a manual
+        # on/move/off loop (timing handled by mSleep / sys.msleep — both are
+        # commonly aliased). We try touch.swipe first because it's the simplest
+        # call that XXTouch is most likely to ship.
+        ms = max(50, int(duration * 1000))
+        script = (
+            f'nLog("iagent swipe {from_x},{from_y}->{to_x},{to_y}")\n'
+            f"if touch.swipe then\n"
+            f"  touch.swipe({from_x}, {from_y}, {to_x}, {to_y}, {ms})\n"
+            f"else\n"
+            f"  touch.on(1, {from_x}, {from_y})\n"
+            f"  local steps = 16\n"
+            f"  local sl = mSleep or (sys and sys.msleep) or function() end\n"
+            f"  for i = 1, steps do\n"
+            f"    local fx = {from_x} + ({to_x} - {from_x}) * i / steps\n"
+            f"    local fy = {from_y} + ({to_y} - {from_y}) * i / steps\n"
+            f"    touch.move(1, fx, fy)\n"
+            f"    sl({ms} / steps)\n"
+            f"  end\n"
+            f"  touch.off(1)\n"
+            f"end\n"
+        )
         out = await _xx_run_lua(script)
         return f"Swiped via XXTouch ({from_x},{from_y})→({to_x},{to_y}) — {out}"
     return _NO_BACKEND_MSG
