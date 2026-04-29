@@ -7,7 +7,10 @@
 set -e
 
 REPO_URL="https://github.com/tiipeng/iAgent.git"
-SRC_DIR="/tmp/iagent_src"
+# Clone to a stable, user-writable path so the user can `cd ~/iAgent && git pull`
+# later without re-running the curl one-liner. /tmp on Dopamine resolves to
+# /private/preboot/<hash>/... and is volatile — don't put the source there.
+SRC_DIR="$HOME/iAgent"
 
 # ── Check prerequisites (Sileo-installable) ──────────────────────────────
 need() {

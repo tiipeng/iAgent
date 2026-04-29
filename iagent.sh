@@ -55,6 +55,7 @@ Usage:
   iagent activate    Install support pkgs, add sudoers rule, wire ios-mcp,
                      restart. Idempotent — re-run any time. Run once after
                      a fresh install to unlock all features.
+  iagent update      git pull + sh install.sh + restart. One-stop refresh.
 
   iagent help        Show this message.
 EOF
@@ -141,6 +142,26 @@ case "$cmd" in
 
     doctor)
         exec "$PY" "$CODE/doctor.py"
+        ;;
+
+    update|upgrade)
+        # One-stop: locate source clone, git pull, run install.sh, restart.
+        SRC=""
+        for cand in "$HOME/iAgent" "/var/jb/var/mobile/iAgent" "/tmp/iagent_src"; do
+            if [ -d "$cand/.git" ]; then SRC="$cand"; break; fi
+        done
+        if [ -z "$SRC" ]; then
+            echo "No iAgent source clone found. Bootstrapping fresh from GitHub…"
+            curl -fsSL https://raw.githubusercontent.com/tiipeng/iAgent/main/bootstrap.sh | sh
+            exec "$0" restart
+        fi
+        echo "Source clone: $SRC"
+        echo "[1/3] git pull…"
+        (cd "$SRC" && git pull --rebase --autostash)
+        echo "[2/3] install.sh…"
+        (cd "$SRC" && sh install.sh)
+        echo "[3/3] restarting bot…"
+        exec "$0" restart
         ;;
 
     activate)
