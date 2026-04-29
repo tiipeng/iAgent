@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 
 import aiohttp
@@ -50,19 +51,22 @@ _SLASH_COMMANDS = [
 
 
 def _setup_readline() -> None:
+    """Tab-complete for / commands. Wrapped tightly because iOS Python's
+    readline binding is known to segfault under run_in_executor input()."""
+    if os.environ.get("IAGENT_NO_READLINE"):
+        return
     try:
         import readline
         def _completer(text: str, state: int) -> str:
             matches = [c for c in _SLASH_COMMANDS if c.startswith(text)]
             return matches[state] if state < len(matches) else None
         readline.set_completer(_completer)
-        # macOS uses libedit which needs a different binding
         if "libedit" in (readline.__doc__ or ""):
             readline.parse_and_bind("bind ^I rl_complete")
         else:
             readline.parse_and_bind("tab: complete")
     except Exception:
-        pass  # readline not available — silently skip
+        pass
 
 
 _CLI_HELP = """\
@@ -127,11 +131,13 @@ async def main() -> None:
     _print_banner(settings.openai_model)
 
     try:
+        # NOTE: avoid run_in_executor(input) — that combo segfaults on iOS
+        # Procursus Python (readline + thread + asyncio interaction). Using
+        # plain blocking input() in the main thread is fine for a REPL.
         loop = asyncio.get_event_loop()
         while True:
             try:
-                # Run blocking input() in a thread so we don't block the loop.
-                line = await loop.run_in_executor(None, lambda: input("\033[1;32myou>\033[0m "))
+                line = input("\033[1;32myou>\033[0m ")
             except (EOFError, KeyboardInterrupt):
                 print()
                 break
