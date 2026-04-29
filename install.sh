@@ -74,6 +74,7 @@ DEFAULTS = {
         # repo, agent will run apt_search to find the right one
         "SimulateTouch", "simulatetouch", "com.luki120.simulatetouch",
         "libactivator", "activator",
+        "ch.xxtou.xxtouch",
     ],
     "heartbeat_interval": 0,
     "heartbeat_prompt": "",

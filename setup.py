@@ -258,6 +258,7 @@ def main() -> int:
             "uikittools", "uikittools-extra", "xclip",
             "SimulateTouch", "simulatetouch", "com.luki120.simulatetouch",
             "libactivator", "activator",
+            "ch.xxtou.xxtouch",
         ]),
         "mcp_servers": existing_cfg.get("mcp_servers", []),
     }
