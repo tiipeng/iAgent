@@ -32,8 +32,6 @@
   "_comment_heartbeat_prompt": "Optional: customise the heartbeat self-prompt.",
   "heartbeat_prompt": "",
 
-  "_comment_mcp": "MCP servers to spawn at startup. Their tools are auto-registered, prefixed with `name_`. Add ios-mcp via Sileo: sudo apt install com.witchan.ios-mcp",
-  "mcp_servers": [
-    {"name": "ios", "command": "/var/jb/usr/bin/ios-mcp"}
-  ]
+  "_comment_mcp": "MCP servers to spawn at startup. Each must be a real JSON-RPC stdio server (protocol 2024-11-05). Their tools auto-register prefixed with `<name>_`. iAgent has no built-in MCP server — leave [] unless you have a real one.",
+  "mcp_servers": []
 }

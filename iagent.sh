@@ -267,91 +267,76 @@ case "$cmd" in
             fi
         }
 
-        # Required: the MCP server itself
-        try_install com.witchan.ios-mcp yes
+        # Required: uikittools (uiopen, lsappinfo) — backbone for
+        # open_url/open_app/list_apps tools.
+        try_install uikittools yes
 
-        # Optional: real package names that exist in common Procursus + tweak
-        # repos. Anything not in your configured repos is reported and skipped.
-        for pkg in uikittools uikittools-extra com.witchan.witchanagent; do
+        # Optional helpers
+        for pkg in uikittools-extra activator; do
             try_install "$pkg" no
         done
+
+        # NOTE: com.witchan.ios-mcp despite its name is NOT an MCP server.
+        # It's an AppSync rebrand. We don't install it. If you have a real
+        # MCP server (stdio-speaking, JSON-RPC), add it manually to
+        # config.json under mcp_servers.
         echo "      → $installed installed, $skipped skipped, $failed failed"
         if [ -n "$missing_optional" ]; then
             echo "      Optional packages not in any configured repo:$missing_optional"
             echo "      (slash commands still work, but report 'unavailable' for those features)"
         fi
 
-        # 3. Locate the MCP stdio server binary by probing each candidate.
-        # com.witchan.ios-mcp ships 4 binaries (mcp-appinst, mcp-ldid, mcp-root,
-        # mcp-roothelper) — only one is the actual MCP server. Same for
-        # com.witchan.witchanagent. We probe each by sending a JSON-RPC
-        # initialize request and keeping the one that returns a valid response.
+        # 3. Probe configured MCP servers.
+        # We don't auto-install anything claiming to be an MCP server — most
+        # are misleading. We only probe what's already in config.json
+        # mcp_servers and verify each binary actually speaks JSON-RPC.
         echo
-        echo "[3/4] Locating MCP stdio server binary…"
+        echo "[3/4] Verifying configured MCP servers…"
 
-        CANDIDATES=""
-        if command -v dpkg >/dev/null 2>&1; then
-            for pkg in com.witchan.witchanagent com.witchan.ios-mcp; do
-                for bin in $(dpkg -L "$pkg" 2>/dev/null | grep -E '/(bin|sbin|libexec)/[^/]+$'); do
-                    [ -x "$bin" ] && CANDIDATES="$CANDIDATES $bin"
-                done
-            done
-        fi
-        # Also a few well-known names in case dpkg list is empty
-        for cand in /var/jb/usr/bin/witchanagent /var/jb/usr/bin/witchan-mcp \
-                    /var/jb/usr/bin/ios-mcp /var/jb/usr/bin/ios-mcp-server; do
-            [ -x "$cand" ] && CANDIDATES="$CANDIDATES $cand"
-        done
-
-        # Probe each: send an MCP `initialize` and keep the first that replies.
-        # Timeout fast (2 s) — a real MCP server replies in milliseconds.
-        IOSMCP=""
-        echo "      Candidates:$CANDIDATES"
-        INIT_REQ='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"iAgent-probe","version":"1.0"}}}'
-        for cand in $CANDIDATES; do
-            printf "      probing %s … " "$cand"
-            response=$(printf '%s\n' "$INIT_REQ" | timeout 2 "$cand" 2>/dev/null | head -1)
-            if echo "$response" | grep -q '"jsonrpc":"2.0"' \
-               && (echo "$response" | grep -q '"result"' || echo "$response" | grep -q '"protocolVersion"'); then
-                echo "MCP ✓"
-                IOSMCP="$cand"
-                break
-            else
-                echo "not an MCP server"
-            fi
-        done
-
-        if [ -n "$IOSMCP" ]; then
-            echo "      Found: $IOSMCP"
-            "$PY" - "$IAGENT_HOME/config.json" "$IOSMCP" <<'PYEOF'
+        # Read existing mcp_servers from config and probe each one
+        SERVER_LIST=$("$PY" - "$IAGENT_HOME/config.json" <<'PYEOF'
 import json, sys
-path, binary = sys.argv[1], sys.argv[2]
-with open(path) as f: cfg = json.load(f)
-servers = cfg.get("mcp_servers", [])
-# Replace any existing 'ios' entry, otherwise append
-servers = [s for s in servers if s.get("name") != "ios"]
-servers.append({"name": "ios", "command": binary})
-cfg["mcp_servers"] = servers
-with open(path, "w") as f:
-    json.dump(cfg, f, indent=2); f.write("\n")
-print(f"      ✓ wired '{binary}' into mcp_servers")
+with open(sys.argv[1]) as f: cfg = json.load(f)
+for s in cfg.get("mcp_servers", []):
+    print(f"{s.get('name','')}\t{s.get('command','')}")
 PYEOF
+)
+        if [ -z "$SERVER_LIST" ]; then
+            echo "      No MCP servers configured. iOS automation uses uikittools directly;"
+            echo "      add an MCP server to config.json mcp_servers if you have one."
         else
-            echo "      ✗ No binary in any installed package responded to MCP initialize."
-            echo "        Tools that need iOS UI control will be unavailable."
-            echo "        Removing any stale 'ios' mcp_servers entry…"
-            "$PY" - "$IAGENT_HOME/config.json" <<'PYEOF'
+            INIT_REQ='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"iAgent-probe","version":"1.0"}}}'
+            BAD_NAMES=""
+            while IFS=$'\t' read -r name command; do
+                [ -z "$name" ] && continue
+                printf "      %-20s [%s] … " "$name" "$command"
+                if [ ! -x "$command" ]; then
+                    echo "binary not found — removing"
+                    BAD_NAMES="$BAD_NAMES $name"
+                    continue
+                fi
+                resp=$(printf '%s\n' "$INIT_REQ" | timeout 2 "$command" 2>/dev/null | head -1)
+                if echo "$resp" | grep -q '"jsonrpc":"2.0"' \
+                   && (echo "$resp" | grep -q '"result"' || echo "$resp" | grep -q '"protocolVersion"'); then
+                    echo "MCP ✓"
+                else
+                    echo "not an MCP server — removing"
+                    BAD_NAMES="$BAD_NAMES $name"
+                fi
+            done <<EOFPROBE
+$SERVER_LIST
+EOFPROBE
+            if [ -n "$BAD_NAMES" ]; then
+                "$PY" - "$IAGENT_HOME/config.json" "$BAD_NAMES" <<'PYEOF'
 import json, sys
-path = sys.argv[1]
+path, bad = sys.argv[1], sys.argv[2].split()
 with open(path) as f: cfg = json.load(f)
-servers = cfg.get("mcp_servers", [])
-servers = [s for s in servers if s.get("name") != "ios"]
-cfg["mcp_servers"] = servers
+cfg["mcp_servers"] = [s for s in cfg.get("mcp_servers", []) if s.get("name") not in bad]
 with open(path, "w") as f:
     json.dump(cfg, f, indent=2); f.write("\n")
-print("      ✓ removed.")
+print(f"      ✓ pruned {len(bad)} stale entries from mcp_servers")
 PYEOF
-            echo "        To debug: dpkg -L com.witchan.ios-mcp ; ls /var/jb/usr/bin/witchan*"
+            fi
         fi
 
         # 4. Restart bot
