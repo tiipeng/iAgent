@@ -90,21 +90,69 @@ async def _stouch(args: list[str]) -> tuple[int, str]:
 
 # ── XXTouch HTTP backend ──────────────────────────────────────────────────
 
-async def _xx_post(path: str, body: dict) -> tuple[int, str]:
+async def _xx_post(path: str, body: Optional[dict] = None) -> tuple[int, str]:
     try:
         async with httpx.AsyncClient(timeout=5.0) as c:
-            r = await c.post(f"{_XXTOUCH_URL}{path}", json=body)
+            if body is None:
+                r = await c.post(f"{_XXTOUCH_URL}{path}")
+            else:
+                r = await c.post(f"{_XXTOUCH_URL}{path}", json=body)
             return r.status_code, r.text
     except Exception as e:
         return -1, f"XXTouch HTTP error: {e}"
 
 
+# XXTouch Lite has no run-lua-string endpoint. Strategy: write a Lua snippet
+# to the currently-selected script file on disk, then POST /launch_script_file.
+# Candidate paths the script directory might live at.
+_SCRIPT_DIRS = [
+    Path("/var/jb/var/mobile/Library/XXTouchLite/scripts"),
+    Path("/var/mobile/Library/XXTouchLite/scripts"),
+    Path("/var/jb/Library/Application Support/XXTouchLite/scripts"),
+    Path("/var/jb/var/mobile/Library/Application Support/XXTouchLite/scripts"),
+]
+
+
+async def _xxtouch_selected_script() -> Optional[Path]:
+    """Ask XXTouch which script is currently selected, then locate it on disk."""
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as c:
+            r = await c.get(f"{_XXTOUCH_URL}/get_selected_script_file")
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        if data.get("code") != 0:
+            return None
+        filename = data.get("data", {}).get("filename")
+        if not filename:
+            return None
+    except Exception:
+        return None
+    for d in _SCRIPT_DIRS:
+        p = d / filename
+        if p.exists() or d.exists():
+            return p
+    return None
+
+
 async def _xx_run_lua(script: str) -> str:
-    """Run a Lua snippet via XXTouch and return its stdout/result."""
-    rc, body = await _xx_post("/command/run_lua_string", {"lua_string": script})
+    """Write Lua snippet to the selected script and trigger launch."""
+    target = await _xxtouch_selected_script()
+    if target is None:
+        return (
+            "[XXTouch] couldn't locate the selected script's path on disk. "
+            "Open the XXTouch web UI at http://<ipad-ip>:46952 once and "
+            "select main.lua."
+        )
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(script)
+    except Exception as e:
+        return f"[XXTouch] failed to write {target}: {e}"
+    rc, body = await _xx_post("/launch_script_file")
     if rc != 200:
-        return f"[XXTouch lua failed {rc}] {body[:300]}"
-    return body[:1000]
+        return f"[XXTouch] launch failed (HTTP {rc}): {body[:200]}"
+    return f"[XXTouch] ran {len(script)} bytes of Lua"
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────
