@@ -243,8 +243,13 @@ case "$cmd" in
         try_install() {
             pkg=$1; required=$2
             printf "      installing %s … " "$pkg"
-            output=$($SUDO /var/jb/usr/bin/apt $APT_OPTS install -y \
-                    --allow-unauthenticated --no-install-recommends "$pkg" 2>&1)
+            # </dev/null + DEBIAN_FRONTEND=noninteractive guards against any
+            # postinst that wants to ask us a question. 60s timeout means a
+            # hung install fails loudly instead of stalling activate forever.
+            output=$(DEBIAN_FRONTEND=noninteractive timeout 60 \
+                    $SUDO /var/jb/usr/bin/apt $APT_OPTS install -y \
+                    --allow-unauthenticated --no-install-recommends "$pkg" \
+                    </dev/null 2>&1)
             rc=$?
             if [ $rc -eq 0 ]; then
                 if echo "$output" | grep -q "is already the newest version"; then
@@ -261,6 +266,9 @@ case "$cmd" in
                     skipped=$((skipped+1))
                     missing_optional="$missing_optional $pkg"
                 fi
+            elif [ $rc -eq 124 ]; then
+                echo "TIMED OUT (60s) — postinst likely hung; install manually"
+                failed=$((failed+1))
             else
                 echo "FAILED ($rc) — $(echo "$output" | tail -1)"
                 failed=$((failed+1))
@@ -271,8 +279,9 @@ case "$cmd" in
         # open_url/open_app/list_apps tools.
         try_install uikittools yes
 
-        # Optional helpers
-        for pkg in uikittools-extra activator; do
+        # Optional helpers. Note: 'activator' has an interactive postinst
+        # that hangs even with -y; users who want it can install manually.
+        for pkg in uikittools-extra; do
             try_install "$pkg" no
         done
 
