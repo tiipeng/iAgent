@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import sys
+from pathlib import Path
 
 import aiohttp
 from openai import AsyncOpenAI
@@ -52,8 +53,18 @@ _SLASH_COMMANDS = [
 
 def _setup_readline() -> None:
     """Tab-complete for / commands. Wrapped tightly because iOS Python's
-    readline binding is known to segfault under run_in_executor input()."""
+    readline binding is known to segfault.
+
+    Default behavior on iOS is to skip readline entirely; users on macOS or
+    Linux can re-enable by setting IAGENT_READLINE=1 explicitly. Setting
+    IAGENT_NO_READLINE=1 also disables it explicitly anywhere.
+    """
     if os.environ.get("IAGENT_NO_READLINE"):
+        return
+    # On iOS / Procursus, readline + Python is unstable. Skip by default
+    # unless the user opts in.
+    is_ios = Path("/var/jb").exists()
+    if is_ios and not os.environ.get("IAGENT_READLINE"):
         return
     try:
         import readline
