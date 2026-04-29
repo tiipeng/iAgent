@@ -239,8 +239,9 @@ case "$cmd" in
             echo "had warnings (unsigned repos) — continuing anyway"
         fi
 
-        installed=0; skipped=0; failed=0
-        for pkg in com.witchan.ios-mcp uikittools-ng upower wifiman screencapture-ios pbcopy; do
+        installed=0; skipped=0; failed=0; missing_optional=""
+        try_install() {
+            pkg=$1; required=$2
             printf "      installing %s … " "$pkg"
             output=$($SUDO /var/jb/usr/bin/apt $APT_OPTS install -y \
                     --allow-unauthenticated --no-install-recommends "$pkg" 2>&1)
@@ -252,14 +253,33 @@ case "$cmd" in
                     echo "ok"; installed=$((installed+1))
                 fi
             elif echo "$output" | grep -q "Unable to locate package"; then
-                echo "not in any configured Sileo repo"
-                skipped=$((skipped+1))
+                if [ "$required" = "yes" ]; then
+                    echo "MISSING (required, no repo has it)"
+                    failed=$((failed+1))
+                else
+                    echo "not in any repo (optional)"
+                    skipped=$((skipped+1))
+                    missing_optional="$missing_optional $pkg"
+                fi
             else
                 echo "FAILED ($rc) — $(echo "$output" | tail -1)"
                 failed=$((failed+1))
             fi
+        }
+
+        # Required: the MCP server itself
+        try_install com.witchan.ios-mcp yes
+
+        # Optional: the slash-command helpers. If missing the bot still works,
+        # only /battery /wifi etc. degrade.
+        for pkg in uikittools-ng upower wifiman screencapture-ios pbcopy; do
+            try_install "$pkg" no
         done
         echo "      → $installed installed, $skipped skipped, $failed failed"
+        if [ -n "$missing_optional" ]; then
+            echo "      Optional packages not in any configured repo:$missing_optional"
+            echo "      (slash commands still work, but report 'unavailable' for those features)"
+        fi
 
         # 3. Locate ios-mcp and wire it into config.json
         echo
