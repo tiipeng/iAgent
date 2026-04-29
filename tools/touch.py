@@ -358,34 +358,39 @@ _SCREENSHOT_PATH = "/var/mobile/Media/1ferver/lua/scripts/iagent_screen.png"
 async def screenshot_xx() -> str:
     if await _backend() != "xxtouch":
         return _NO_BACKEND_MSG
-    # XXTouch's screen module: screen.image() returns an image object,
-    # which has a :save_to_png(path) method. The exact API name varies
-    # slightly by version; we try the common forms in one Lua snippet.
+    # Confirmed API: screen.image() returns an image, :png_data() returns
+    # the PNG bytes. We then write the bytes to disk via Lua io.
     lua = (
         f'local path = "{_SCREENSHOT_PATH}"\n'
         f'nLog("iagent screenshot to " .. path)\n'
         f"local ok, err = pcall(function()\n"
         f"  local img = screen.image()\n"
-        f"  if img.save_to_png then\n"
-        f"    img:save_to_png(path)\n"
-        f"  elseif img.save then\n"
-        f"    img:save(path)\n"
-        f"  elseif screen.snap then\n"
-        f"    screen.snap(path)\n"
-        f"  else\n"
-        f'    error("no known XXTouch screen save method")\n'
-        f"  end\n"
+        f"  local data = img:png_data()\n"
+        f'  local f, oerr = io.open(path, "wb")\n'
+        f"  if not f then error(oerr) end\n"
+        f"  f:write(data)\n"
+        f"  f:close()\n"
+        f'  nLog("ok " .. #data .. " bytes")\n'
         f"end)\n"
         f'if not ok then nLog("screenshot error: " .. tostring(err)) end\n'
     )
     out = await _xx_run_lua(lua)
-    # Wait briefly for the file to appear
     import asyncio as _a
-    for _ in range(10):
-        if Path(_SCREENSHOT_PATH).exists():
+    for _ in range(20):
+        if Path(_SCREENSHOT_PATH).exists() and Path(_SCREENSHOT_PATH).stat().st_size > 0:
             return _SCREENSHOT_PATH
         await _a.sleep(0.1)
-    return f"[screenshot_xx] Lua ran but {_SCREENSHOT_PATH} did not appear: {out}"
+    # Surface XXTouch's own error log on failure
+    try:
+        err_log = Path("/var/jb/usr/local/xxtouch/log/script_error.log").read_text()[-500:]
+        out_log = Path("/var/jb/usr/local/xxtouch/log/script_output.log").read_text()[-500:]
+    except Exception:
+        err_log = out_log = ""
+    return (
+        f"[screenshot_xx] file not created. Lua run result: {out}\n"
+        f"script_output: {out_log}\n"
+        f"script_error: {err_log}"
+    )
 
 
 @register({
