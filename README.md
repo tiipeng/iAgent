@@ -1,6 +1,6 @@
 # iAgent
 
-Personal AI agent that runs **natively on a jailbroken iPad** — Telegram bot + local CLI, powered by **OpenAI GPT-4o** with tool calling. Runs shell commands, reads/writes files, fetches URLs, runs iOS Shortcuts (HealthKit, HomeKit, Photos, Reminders, Calendar, Music, Files, Messages), takes screenshots, describes photos with vision, manages clipboard, persists facts, even patches its own source code. No cloud relay, no Docker.
+Personal AI agent that runs **natively on a jailbroken iPad** — Telegram bot + local CLI, powered by **OpenAI GPT-4o** with tool calling. It can run shell commands, read/write files, fetch URLs, control the clipboard, use XXTouch for screenshots/UI automation, inspect device state, remember facts, manage skills, debug its own runtime, and operate Homebridge through a jailbroken-iOS-safe ops layer. No cloud relay, no Docker.
 
 Inspired by [openclaw](https://github.com/openclaw/openclaw) and [hermes-agent](https://github.com/NousResearch/hermes-agent), but rebuilt for the realities of rootless Dopamine on iOS 15–16.
 
@@ -13,7 +13,8 @@ Inspired by [openclaw](https://github.com/openclaw/openclaw) and [hermes-agent](
 - [Telegram slash commands](#telegram-slash-commands)
 - [CLI REPL slash commands](#cli-repl-slash-commands)
 - [Agent tools](#agent-tools)
-- [iOS Shortcuts setup](#ios-shortcuts-setup)
+- [iPad ops layer](#ipad-ops-layer)
+- [Native iOS automation realities](#native-ios-automation-realities)
 - [Configuration reference](#configuration-reference)
 - [Architecture](#architecture)
 - [Things we learned the hard way](#things-we-learned-the-hard-way)
@@ -28,7 +29,7 @@ Both `openclaw` and `hermes-agent` failed to install on a jailbroken iPad:
 - **openclaw** — installer demands Homebrew, which on iOS thinks the user must be in the macOS `admin` group.
 - **hermes-agent** — `pyproject.toml` requires Python ≥ 3.11, but Procursus ships only Python 3.9.9. Even with `--no-deps`, transitive deps like `jiter` and `tokenizers` need a Rust toolchain that doesn't recognise the iPad's machine triple.
 
-iAgent is the same idea, rebuilt around what actually works on the device.
+iAgent is the same idea, rebuilt around what actually works on the device. The current build also includes an operations layer for a real jailbroken iPad setup: tmux-safe service management, Homebridge runbooks, self-tests, repair playbooks, an ops journal, and Telegram-friendly status cards.
 
 ---
 
@@ -42,7 +43,8 @@ iAgent is the same idea, rebuilt around what actually works on the device.
 - `tmux` ← required for `iagent` to keep the bot alive in a session
 - `git`, `curl`, `ca-certificates` — usually present
 - `openssh` — recommended for editing config from a Mac
-- *Optional but unlocks more features:* `shortcuts-cli`, `pbcopy`, `upower`, `wifiman`
+- *Optional but unlocks more features:* `pbcopy`/`pbpaste`, `jq`, `sqlite3`, `ffmpeg`, `socat`/`ncat`, `ios-mcp`, `XXTouch`, `clang`/`make` for rare native builds
+- Homebridge support expects Node.js 18.x from Procursus or your rootless prefix
 
 **Accounts you need**
 - A [Telegram bot token](https://t.me/BotFather) (chat with `@BotFather` → `/newbot`)
@@ -113,7 +115,7 @@ Type `/` in the chat or tap the bot's command menu. All commands are also auto-r
 | `/start` | Wake up the bot |
 | `/help` | List all commands grouped by category |
 | `/clear` | Reset conversation history |
-| `/status` | Time, host, model, history count, heartbeat state |
+| `/status` | Time, host, model, history count, heartbeat state. For deep health, ask for a Steve/iAgent status card. |
 | `/model` | Show current model |
 | `/model gpt-4o-mini` | Switch model until next restart |
 | `/memory` | Show conversation message count + window size |
@@ -129,7 +131,7 @@ Type `/` in the chat or tap the bot's command menu. All commands are also auto-r
 
 | Command | What it does |
 |---|---|
-| `/battery` | Battery percentage and charging state (sysfs / upower) |
+| `/battery` | Battery percentage and charging state (`ioreg` fallback on iOS) |
 | `/wifi` | Wi-Fi SSID and IP address |
 | `/disk` | Disk usage for `/` and `/var/jb` |
 | `/ip` | All network interfaces |
@@ -173,7 +175,7 @@ These are what the AI calls internally — you never invoke them directly, you j
 
 | Tool | What it does |
 |---|---|
-| `shell_run` | Run a shell command (`asyncio.create_subprocess_exec`, configurable timeout, optional allowlist) |
+| `shell` | Run a shell command through the iOS-safe subprocess layer |
 | `read_file` / `write_file` / `list_files` | Sandboxed to `workspace_root` |
 | `http_get` / `http_post` | aiohttp request, response truncated at 50 KB |
 | `apt_install` / `apt_search` | Install / search Procursus packages — allowlist gated |
@@ -182,30 +184,30 @@ These are what the AI calls internally — you never invoke them directly, you j
 
 | Tool | What it does |
 |---|---|
-| `get_battery` | Battery % and status from sysfs / upower — no extra packages needed |
+| `get_battery` | Battery % and charging state, including iOS `ioreg` fallback |
 | `get_device_info` | Kernel, machine, OS, uptime, RAM |
-| `take_screenshot` | Native CLI if installed, else Shortcuts bridge |
+| `screenshot_xx` / `look_at_screen` | XXTouch-backed screen capture with stale-file cleanup and optional vision description |
+| `tap` / `swipe` / `scroll` / `press_home` | UI automation through XXTouch where available |
+| `touch_backend_status` | Check whether the touch/screenshot backend is reachable |
 | `set_brightness` | Set screen brightness 0.0–1.0 |
 | `clipboard_read` / `clipboard_write` | iOS pasteboard via pbcopy/pbpaste |
 
-### iOS Shortcuts bridges
+### Native iOS and automation
 
-| Tool | What it does | Shortcut needed |
-|---|---|---|
-| `run_shortcut(name, input)` | Invoke any Shortcut by name | — |
-| `list_shortcuts` | List installed Shortcuts | — |
-| `take_photo` | Take a photo with the camera | iAgent Take Photo |
-| `read_recent_photos(limit)` | Fetch N latest photos to workspace | iAgent Recent Photos |
-| `describe_photo(path, question)` | GPT-4o vision on an image file | — |
-| `read_health(metric)` | HealthKit (steps, heart_rate, sleep, …) | iAgent Health |
-| `set_home_scene(scene)` | HomeKit scene | iAgent HomeKit |
-| `create_reminder(text, due)` | Reminders | iAgent Reminder |
-| `create_calendar_event(...)` | Calendar | iAgent Calendar |
-| `get_location` | GPS + address | iAgent Location |
-| `play_music(query)` | Apple Music | iAgent Music |
-| `save_to_files(filename, content)` | iCloud Drive | iAgent Save File |
-| `send_imessage(recipient, message)` | iMessage / SMS | iAgent Message |
-| `send_notification(title, body)` | Local push notification | iAgent Notify |
+| Tool | What it does |
+|---|---|
+| `open_url` | Open a URL with iOS URL schemes |
+| `open_app` / `list_apps` | Launch or discover installed apps where bundle metadata is visible |
+| `respring` | Trigger a respring when explicitly requested |
+| `read_recent_photos` / `send_photo` | Read or send recent Photos-library items where permissions allow |
+| `describe_photo(path, question)` | GPT-4o vision on an image file |
+| `read_messages` | Read local Messages data where the device grants filesystem access |
+| `read_contacts` | Read local contacts database |
+| `read_calendar_events` | Read local Calendar events |
+| `read_safari_history` | Inspect Safari history database |
+| `list_voice_memos` | List locally stored Voice Memos |
+
+> Shortcuts are documented as a caveat, not the primary backend. See [Native iOS automation realities](#native-ios-automation-realities).
 
 ### Memory
 
@@ -234,33 +236,96 @@ These are what the AI calls internally — you never invoke them directly, you j
 | `patch_own_source(file, old, new, confirm)` | `confirm=false` shows diff; `confirm=true` writes `.bak` and applies |
 | `restart_self` | Fire `iagent restart` after 3 s — reply lands first |
 
+### Operations
+
+| Tool | What it does |
+|---|---|
+| `start_service` / `stop_service` | Service lifecycle through iOS-safe runbooks |
+| `diagnose_service` / `troubleshoot_service` | Structured service diagnostics and issue classification |
+| `repair_service` | Cautious repair workflow with safe/unsafe action separation |
+| `run_selftest` | Live health checks for the iAgent runtime and integrations |
+| `read_ops_journal` / `summarize_ops_journal` | Redacted operational event history |
+| `get_status_card` / `format_status_card` | Human-readable Telegram status summary |
+
 ---
 
-## iOS Shortcuts setup
+## iPad ops layer
 
-To unlock the iOS-native tools, create the matching Shortcuts in the Shortcuts app. Each follows the same pattern: **receive text input → do the action → return text output**.
+The current iAgent build includes a jailbroken-iPad operations layer. It is designed for the things that normally break on rootless Dopamine: tmux locale, long socket paths, Homebridge startup races, missing Linux utilities, Node/iOS quirks, and agent memory/tool-history problems.
 
-The agent can guide you through any of these — just ask it `"view skill shortcuts_setup"` in Telegram, or read the file at [skills/shortcuts_setup.md](skills/shortcuts_setup.md).
+### Service and Homebridge tools
 
-### Minimal cookbook
-
-| Shortcut | Actions (in order) |
+| Tool | What it does |
 |---|---|
-| **iAgent Notify** | Receive Input → Show Notification (Message = Shortcut Input) |
-| **iAgent Take Photo** | Take Photo → Save File to `/var/jb/var/mobile/iagent/workspace/photo.jpg` → Return path |
-| **iAgent Recent Photos** | Receive Input (number) → Find Photos (limit = input) → Save each → Return paths |
-| **iAgent Screenshot** | Take Screenshot → Save File to `workspace/screenshot.png` → Return path |
-| **iAgent Health** | Receive Input (metric name) → Find Health Samples → Return value + unit |
-| **iAgent HomeKit** | Receive Input (scene name) → Control Home → Run scene named input |
-| **iAgent Reminder** | Receive Input (`title|due_date`) → Split by `|` → Add New Reminder |
-| **iAgent Calendar** | Receive Input (`title|start|end|notes`) → Split → Add New Event |
-| **iAgent Location** | Get Current Location → Return `lat,lon\naddress` |
-| **iAgent Music** | Receive Input (query) → Search Music → Play first result |
-| **iAgent Save File** | Receive Input (`filename|content`) → Make Text File → Save to On My iPad |
-| **iAgent Message** | Receive Input (`recipient|message`) → Send Message |
-| **iAgent Brightness** | Receive Input (number 0–1) → Set Brightness |
+| `start_service` / `stop_service` | Start/stop services using a runbook-safe environment |
+| `diagnose_service` | Inspect service state, logs, ports, tmux panes, and known issue patterns |
+| `wait_for_ports` | Retry port checks to avoid false failures during startup races |
+| `troubleshoot_service` | Classify known issues and propose the next safe action |
+| `inspect_service_listeners` | Inspect listeners or fall back to process candidates when `lsof` is missing |
+| `repair_service` | Run cautious repair playbooks without broad process kills |
 
-You don't need all of them — only create the Shortcuts whose tools you actually want to use.
+The bundled Homebridge runbook lives at [`runbooks/homebridge.json`](runbooks/homebridge.json). It knows the iOS-safe tmux approach, the Homebridge and Config UI ports, log paths, plugin paths, and common failure signatures such as invalid locale, port-in-use, Config UI v5 crashes, Ring not configured, and Samsung TV pairing waiting for physical confirmation.
+
+### Self-test, journal, and status cards
+
+| Tool | What it does |
+|---|---|
+| `run_selftest` | Checks iAgent runtime, tool registry, Homebridge, XXTouch, ios-mcp, battery probe, and history sanitizer |
+| `read_ops_journal` | Reads recent redacted operational events |
+| `summarize_ops_journal` | Summarizes recent selftests/troubleshooting/repairs |
+| `get_status_card` / `format_status_card` | Produces a compact Telegram-friendly health card |
+
+Example status-card output:
+
+```text
+✅ Steve/iAgent Status: OK
+Checks: fail=0, ok=7, skip=0, warn=0
+✅ iAgent runtime
+✅ Tool registry
+✅ Homebridge
+✅ XXTouch
+✅ ios-mcp
+✅ Battery
+✅ History sanitizer
+```
+
+### Scripts
+
+| Script | Purpose |
+|---|---|
+| `scripts/selftest.py` | CLI entry point for the self-test suite |
+| `scripts/regression_check.py` | Regression checks for the ops layer, runbooks, journal redaction, and status cards |
+
+Run before shipping changes:
+
+```bash
+python3 -m compileall -q agent bot tools scripts main.py chat.py
+python3 scripts/regression_check.py
+python3 scripts/selftest.py --no-live
+```
+
+---
+
+## Native iOS automation realities
+
+Earlier versions tried to rely on a `shortcuts` CLI and direct Shortcuts database writes. On this iOS/rootless setup that is not reliable:
+
+- The normal macOS `shortcuts` binary is not present on iOS.
+- Direct SQLite inserts into `Shortcuts.sqlite` can appear in the database but are ignored by the Shortcuts runtime cache.
+- Shortcuts created manually in the Shortcuts app can still be useful, but iAgent should not assume it can create or run them through a universal CLI.
+
+Preferred working integrations today:
+
+| Capability | Preferred path |
+|---|---|
+| Screen screenshots / taps / UI automation | XXTouch |
+| Clipboard | `pbcopy` / `pbpaste` |
+| Photos/files/databases | Direct file access and SQLite where permissions allow |
+| ios-mcp | HTTP service on port `8090`, not stdio MCP |
+| Homebridge / smart-home ops | tmux + runbook tools |
+| Shortcuts-only features | Manual Shortcut setup, then call through a tested bridge if present |
+
+The old `shortcuts_setup` skill remains as documentation of the caveats, not as a promise that every Shortcut bridge works automatically on iOS.
 
 ---
 
@@ -274,7 +339,14 @@ Files in `skills/*.md` (shipped with the repo) and `$IAGENT_HOME/skills/*.md` (u
 | `disk_usage` | Free / used space |
 | `wifi_info` | SSID + IP |
 | `uptime` | Device uptime |
-| `shortcuts_setup` | Step-by-step Shortcut creation guide |
+| `homebridge_ipad` | Homebridge on jailbroken iPad via tmux, not LaunchDaemon |
+| `ipad_xxtouch_control` | XXTouch screenshots, taps, swipes, and UI automation |
+| `ipad_native_data` | Notes about local iOS data stores and app access |
+| `ios_mcp_notes` | ios-mcp HTTP service usage and caveats |
+| `exit_node_proxy` | Tailscale/exit-node/proxy notes |
+| `iagent_self_management` | How iAgent should inspect, patch, restart, and verify itself |
+| `autonomous_troubleshooting` | Reproduce → inspect → hypothesize → safe fix → verify loop |
+| `shortcuts_setup` | Shortcuts caveats; manual setup only where truly needed |
 
 The agent reads them lazily via `view_skill` whenever a task seems to match. Add your own with `write_skill` or by writing a `.md` file in `$IAGENT_HOME/skills/`.
 
@@ -336,17 +408,18 @@ No restart needed — re-read on every message.
                    │  │     ├─ tools.shell                 │
                    │  │     ├─ tools.file_io               │
                    │  │     ├─ tools.http_fetch            │
-                   │  │     ├─ tools.shortcuts             │
+                   │  │     ├─ tools.automation/native      │
                    │  │     ├─ tools.photo (vision)        │
-                   │  │     ├─ tools.ios (HealthKit etc.)  │
+                   │  │     ├─ tools.touch (XXTouch)        │
                    │  │     ├─ tools.device                │
                    │  │     ├─ tools.facts                 │
                    │  │     ├─ tools.skills                │
                    │  │     ├─ tools.self_debug            │
+                   │  │     ├─ tools.services/selftest      │
+                   │  │     ├─ tools.ops_journal/status     │
                    │  │     ├─ tools.clipboard             │
-                   │  │     ├─ tools.notify                │
                    │  │     └─ tools.apt                   │
-                   │  └─ append + loop (max 10 iterations) │
+                   │  └─ append + loop (configurable max)   │
                    └───────────────┬───────────────────────┘
                                    │
                   ┌────────────────┼────────────────┐
@@ -386,7 +459,7 @@ iAgent/
 │   └── config.json.example
 ├── agent/
 │   ├── loop.py                     # OpenAI tool-calling loop (parallel dispatch)
-│   ├── memory.py                   # SQLite + WAL conversation store
+│   ├── memory.py                   # SQLite + WAL conversation store + tool-history sanitizer
 │   ├── facts.py                    # Persistent key/value memory
 │   ├── heartbeat.py                # Asyncio background self-prompts
 │   └── context.py                  # SOUL+system prompt + iOS-aware tool roster
@@ -396,20 +469,38 @@ iAgent/
 │   ├── file_io.py                  # aiofiles, sandboxed
 │   ├── http_fetch.py               # aiohttp GET/POST
 │   ├── apt.py                      # apt_install / apt_search
-│   ├── shortcuts.py                # iOS Shortcuts CLI bridge
-│   ├── photo.py                    # take_photo + GPT-4o vision
-│   ├── ios.py                      # HealthKit / HomeKit / Reminders / …
+│   ├── automation.py               # app launch / UI automation helpers
+│   ├── native.py                   # native iOS data helpers where available
+│   ├── mcp_bridge.py               # ios-mcp HTTP bridge notes/tools
+│   ├── photo.py                    # photo helpers + GPT-4o vision
+│   ├── touch.py                    # XXTouch screenshots / tap / swipe / type
 │   ├── device.py                   # battery / screenshot / brightness
 │   ├── clipboard.py                # pbcopy / pbpaste
-│   ├── notify.py                   # local push notifications
 │   ├── facts.py                    # remember/recall fact tools
 │   ├── skills.py                   # list/view/write skill tools
-│   └── self_debug.py               # logs + source patch + restart
+│   ├── self_debug.py               # logs + source patch + restart
+│   ├── shell_env.py                # iOS/rootless-safe shell env helpers
+│   ├── services.py                 # runbook-backed service diagnostics/repair
+│   ├── selftest.py                 # iAgent/Homebridge/XXTouch/ios-mcp checks
+│   ├── ops_journal.py              # redacted operational event journal
+│   └── status_cards.py             # Telegram-friendly status summaries
+├── runbooks/
+│   └── homebridge.json             # Homebridge tmux/runbook definition
+├── scripts/
+│   ├── regression_check.py         # ops-layer regression checks
+│   └── selftest.py                 # CLI selftest wrapper
 ├── skills/                         # Markdown skill library
 │   ├── battery.md
 │   ├── disk_usage.md
 │   ├── wifi_info.md
 │   ├── uptime.md
+│   ├── homebridge_ipad.md
+│   ├── ipad_xxtouch_control.md
+│   ├── ipad_native_data.md
+│   ├── ios_mcp_notes.md
+│   ├── exit_node_proxy.md
+│   ├── iagent_self_management.md
+│   ├── autonomous_troubleshooting.md
 │   └── shortcuts_setup.md
 ├── bot/
 │   ├── handlers.py                 # All / commands + message handler
@@ -485,6 +576,22 @@ Two stacked failures the script handles for you:
 
 Pin everything. Our `requirements.txt` has the working set — don't upgrade past the pins without testing on-device.
 
+### 16. Homebridge works best under tmux, not launchd
+
+Homebridge and Config UI can run reliably on iOS, but use tmux sessions with explicit locale and short socket paths. Config UI X v5 may crash on Node 18/iOS; the known-good path is Config UI X v4.x plus iOS-safe plugin paths.
+
+### 17. Missing Linux tools need graceful fallbacks
+
+Do not assume `lsof`, `/bin/sh`, GNU coreutils, or normal Linux process layouts exist. The service layer falls back to `ps` candidates and runbook metadata where exact listener ownership is unavailable.
+
+### 18. Tool-call history must be sanitized
+
+OpenAI rejects orphaned `tool` messages. `agent/memory.py` filters invalid historical tool messages/tool calls before building context.
+
+### 19. Shortcuts are not a universal automation backend on iOS
+
+Manual Shortcuts can work, but there is no reliable universal `shortcuts` CLI on this iOS setup, and direct DB inserts are ignored by the runtime cache. Prefer XXTouch, direct files/SQLite, clipboard, ios-mcp HTTP, and runbook-backed services.
+
 ---
 
 ## Daily operations
@@ -501,12 +608,15 @@ Pin everything. Our `requirements.txt` has the working set — don't upgrade pas
 | Foreground debug | `iagent fg` |
 | Local CLI chat | `iagent chat` |
 | Health check | `iagent doctor` |
+| Ops selftest | `python3 scripts/selftest.py` or ask the agent to run `run_selftest` |
+| Regression check | `python3 scripts/regression_check.py` |
+| Status card | Ask: `show Steve/iAgent status card` |
 
 ---
 
 ## Troubleshooting
 
-**First, run `iagent doctor`.** Ten checks — Python, venv, .env, config, Telegram, OpenAI, tmux session, logs, disk, ca-certificates.
+**First, run `iagent doctor`.** For runtime/integration issues, also run `python3 scripts/selftest.py` or ask the agent for a Steve/iAgent status card. The selftest covers runtime files, tool registry, Homebridge, XXTouch, ios-mcp, battery probe, and history sanitizer.
 
 ### Bot doesn't reply
 
@@ -541,6 +651,18 @@ Either replace the dep with something pure-Python, or `sudo apt install clang` (
 ### `Unknown macOS machine: iPad11,3` while installing a dependency
 
 You're trying to install a Rust-built package. Pin to the last pre-Rust version.
+
+### Homebridge or Config UI does not come up
+
+Ask the agent to run `diagnose_service` or `repair_service` for `homebridge`. The runbook checks tmux panes, known ports, logs, locale problems, startup races, and known plugin/config states. Avoid broad `kill` commands; use the targeted plan from `inspect_service_listeners`/`repair_service`.
+
+### Agent gives OpenAI tool-history errors
+
+Clear history with `/clear` first. The current memory loader sanitizes orphaned tool messages, but very old databases may still contain invalid history rows from older builds.
+
+### Shortcuts tools do not work
+
+This is expected on many iOS/rootless setups. The repo documents Shortcuts caveats, but the preferred paths are XXTouch, direct file/SQLite access, clipboard tools, ios-mcp HTTP, and service runbooks.
 
 ### Telegram `/` menu doesn't show commands
 
