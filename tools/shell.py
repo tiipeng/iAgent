@@ -35,7 +35,8 @@ def configure(timeout: int = 30, allowlist: Optional[list[str]] = None) -> None:
     "name": "shell",
     "description": (
         "Run a shell command on the device and return its stdout + stderr. "
-        "Use for system info, file operations, or any local task. "
+        "Use for system info, file operations, SSH/scp to owner-authorized hosts, "
+        "network checks, service administration, or any local task. "
         "Commands are killed after the configured timeout."
     ),
     "parameters": {

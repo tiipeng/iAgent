@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio, importlib, json, sys
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
-CODE = ROOT
+CODE = ROOT / "code" if (ROOT / "code").exists() else ROOT
 if str(CODE) not in sys.path: sys.path.insert(0, str(CODE))
 import os
 os.environ.setdefault("IAGENT_HOME", str(ROOT))
@@ -84,6 +84,19 @@ def test_sprint6_status_card_combines_journal():
 def test_sprint6_status_card_tools_registered():
     import tools.status_cards, tools.registry as registry; names=[s["function"]["name"] for s in registry.get_schemas()]; assert "get_status_card" in names; assert "format_status_card" in names
 
+def test_sprint7_prompt_allows_owner_ssh_admin():
+    mod=importlib.import_module("agent.context")
+    prompt=mod.ChatContext(chat_id=-1).system_prompt()
+    assert "SSH commands to the user's own/local/Tailscale devices" in prompt
+    assert "Do not say you cannot access external devices for security reasons" in prompt
+    assert "reboot/shutdown" in prompt
+
+def test_sprint7_shell_schema_mentions_ssh():
+    import tools.shell, tools.registry as registry
+    schemas={s["function"]["name"]:s["function"] for s in registry.get_schemas()}
+    desc=schemas["shell"]["description"]
+    assert "SSH/scp" in desc and "owner-authorized" in desc
+
 async def main():
     check("shell_env", test_shell_env); check("homebridge_runbook", test_homebridge_runbook); check("services_import_and_diagnose_shape", test_services_import_and_diagnose_shape); await acheck("service_tool_registered", test_service_tool_registered)
     check("sprint2_issue_classification", test_sprint2_issue_classification); check("sprint2_next_action_selection", test_sprint2_next_action_selection); await acheck("sprint2_troubleshoot_tool_registered", test_sprint2_troubleshoot_tool_registered)
@@ -92,6 +105,7 @@ async def main():
     check("sprint5_ops_journal_module_shape", test_sprint5_ops_journal_module_shape); check("sprint5_ops_journal_record_and_summary_tmp", test_sprint5_ops_journal_record_and_summary_tmp); check("sprint5_ops_journal_tools_registered", test_sprint5_ops_journal_tools_registered)
     check("sprint5_ops_journal_redacts_secrets", test_sprint5_ops_journal_redacts_secrets)
     check("sprint6_status_card_from_selftest", test_sprint6_status_card_from_selftest); check("sprint6_status_card_combines_journal", test_sprint6_status_card_combines_journal); check("sprint6_status_card_tools_registered", test_sprint6_status_card_tools_registered)
+    check("sprint7_prompt_allows_owner_ssh_admin", test_sprint7_prompt_allows_owner_ssh_admin); check("sprint7_shell_schema_mentions_ssh", test_sprint7_shell_schema_mentions_ssh)
     if failures: print("\n".join(failures)); raise SystemExit(1)
     print("ALL REGRESSION CHECKS PASSED")
 if __name__ == "__main__": asyncio.run(main())
