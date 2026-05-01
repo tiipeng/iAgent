@@ -66,17 +66,18 @@ class Memory:
         rows.reverse()
         messages: list[dict] = []
         for role, content, tool_calls_json, tool_call_id in rows:
+            # Persisted tool-call transcripts are fragile when the history
+            # window cuts through a tool sequence. To avoid OpenAI 400s,
+            # only replay plain user/assistant text in long-term history.
+            if role == "tool":
+                continue
+            if role == "assistant" and content is None:
+                continue
             msg: dict = {"role": role}
             if content is not None:
                 msg["content"] = content
-            if tool_calls_json:
-                import json
-                msg["tool_calls"] = json.loads(tool_calls_json)
-            if tool_call_id:
-                msg["tool_call_id"] = tool_call_id
             messages.append(msg)
         return messages
-
     async def prune(self, chat_id: int, keep: int = 20) -> None:
         await self._db.execute(
             "DELETE FROM messages WHERE chat_id = ? AND id NOT IN ("

@@ -1,0 +1,83 @@
+{
+  "name": "homebridge",
+  "description": "Homebridge + Config UI X on the jailbroken rootless iPad",
+  "start": "/var/mobile/homebridge/start-hb-tmux.sh",
+  "stop": "/var/mobile/homebridge/stop-hb-tmux.sh",
+  "start_timeout": 90,
+  "stop_timeout": 30,
+  "retry_seconds": 30,
+  "host": "127.0.0.1",
+  "ports": [
+    51826,
+    8581
+  ],
+  "tmux": {
+    "socket": "/var/mobile/homebridge/tmux.sock",
+    "session": "homebridge",
+    "windows": [
+      "hb",
+      "ui"
+    ]
+  },
+  "logs": [
+    "/var/mobile/homebridge/homebridge.log",
+    "/var/mobile/homebridge/homebridge-ui.log"
+  ],
+  "issue_patterns": {
+    "invalid_locale": {
+      "match": [
+        "invalid LC_ALL",
+        "invalid LC_CTYPE",
+        "invalid LC_ALL, LC_CTYPE or LANG"
+      ],
+      "safe_action": "start_service",
+      "notes": "Use shell_env/start script: unset LC_ALL then set LC_CTYPE/LANG."
+    },
+    "port_in_use": {
+      "match": [
+        "EADDRINUSE",
+        "address already in use"
+      ],
+      "safe_action": "manual_targeted_cleanup",
+      "notes": "Identify exact owner; do not broad kill."
+    },
+    "ui_v5_sigbus": {
+      "match": [
+        "EXIT:138",
+        "SIGBUS"
+      ],
+      "safe_action": "manual_downgrade",
+      "notes": "Use homebridge-config-ui-x@4.65.0."
+    },
+    "ports_not_ready": {
+      "match": [
+        "ports closed immediately after start"
+      ],
+      "safe_action": "wait_for_ports",
+      "notes": "Retry before failure."
+    }
+  },
+  "remediation_policy": {
+    "auto_allowed": [
+      "wait_for_ports",
+      "start_service"
+    ],
+    "auto_denied": [
+      "manual_targeted_cleanup",
+      "manual_downgrade",
+      "needs_secret_or_user_auth",
+      "needs_physical_confirmation"
+    ]
+  },
+  "known_issues": {
+    "tmux: invalid LC_ALL, LC_CTYPE or LANG": "Clear inherited LC_ALL with unset LC_ALL, then set LC_CTYPE=UTF-8 LANG=en_US.UTF-8.",
+    "EADDRINUSE": "Clean targeted orphan Homebridge/UI/tmux processes, then restart with start-hb-tmux.sh.",
+    "EXIT:138": "Do not use homebridge-config-ui-x v5 on this iPad; use v4.65.0.",
+    "ports closed immediately after start": "Do not fail immediately; wait/retry for up to retry_seconds because Node needs time to bind ports."
+  },
+  "process_patterns": [
+    "homebridge",
+    "homebridge-config-ui-x",
+    "standalone.js"
+  ]
+}

@@ -335,6 +335,31 @@ async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     asyncio.create_task(_do_restart())
 
 
+
+
+
+
+async def _homebridge_tmux_fastpath(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str) -> bool:
+    """Deterministic handler for the known-good Homebridge tmux startup on this iPad."""
+    text = user_text.lower()
+    if not ("homebridge" in text and "tmux" in text and any(w in text for w in ("start", "run", "gateway", "launch"))):
+        return False
+    chat_id = update.effective_chat.id
+    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+    env = "unset LC_ALL; export LC_CTYPE=UTF-8 LANG=en_US.UTF-8 PATH=/var/jb/usr/bin:/var/jb/usr/local/bin:/var/jb/bin:/var/jb/var/mobile/.npm-global/bin:$PATH; "
+    out = await _shell(env + "/var/mobile/homebridge/start-hb-tmux.sh", timeout=90.0)
+    # start-hb-tmux.sh returns as soon as tmux panes are created; Node/Homebridge needs a few seconds before ports listen.
+    verify_cmd = env + "for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do W=$(/var/jb/usr/bin/tmux -S /var/mobile/homebridge/tmux.sock list-windows -t homebridge 2>&1); P1=CLOSED; P2=CLOSED; /var/jb/usr/bin/ncat -z -w 1 127.0.0.1 51826 >/dev/null 2>&1 && P1=OPEN; /var/jb/usr/bin/ncat -z -w 1 127.0.0.1 8581 >/dev/null 2>&1 && P2=OPEN; if echo $W | grep -q hb && echo $W | grep -q ui && [ $P1 = OPEN ] && [ $P2 = OPEN ]; then echo $W; echo 51826 OPEN; echo 8581 OPEN; exit 0; fi; sleep 2; done; /var/jb/usr/bin/tmux -S /var/mobile/homebridge/tmux.sock list-windows -t homebridge 2>&1; for p in 51826 8581; do /var/jb/usr/bin/ncat -z -w 2 127.0.0.1 $p >/dev/null 2>&1 && echo $p OPEN || echo $p CLOSED; done; echo '--- homebridge.log tail ---'; /var/jb/usr/bin/tail -25 /var/mobile/homebridge/homebridge.log 2>&1; echo '--- ui.log tail ---'; /var/jb/usr/bin/tail -15 /var/mobile/homebridge/homebridge-ui.log 2>&1"
+    verify = await _shell(verify_cmd, timeout=45.0)
+    ok = ("51826 OPEN" in verify and "8581 OPEN" in verify and "hb" in verify and "ui" in verify)
+    if ok:
+        reply = "Homebridge Gateway ist mit tmux gestartet.\n\n```\n" + verify[-1200:] + "\n```"
+    else:
+        reply = "Ich habe das bekannte tmux-Startscript ausgeführt, aber die Verifikation ist nach Retry noch nicht komplett grün. Keine Locale-Pakete/adv-cmds nötig.\n\nStart output:\n```\n" + out[-1200:] + "\n```\nVerify:\n```\n" + verify[-1800:] + "\n```"
+    await update.message.reply_text(reply)
+    return True
+
+
 # ── Message handler ───────────────────────────────────────────────────────
 
 @_guard
@@ -356,6 +381,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Make this chat reachable from photo tool's send_photo etc.
     from tools.photo import current_chat_id as _photo_chat_id
     _photo_chat_id.set(chat_id)
+
+    if await _homebridge_tmux_fastpath(update, context, user_text):
+        return
 
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 

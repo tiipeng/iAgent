@@ -69,7 +69,34 @@ async def get_battery() -> str:
     if upower:
         return upower
 
-    # Fallback: SpringBoard battery via activator or sysctl
+    # Fallback: iOS IOKit registry. This works on jailbroken iOS where
+    # Linux /sys power_supply is absent.
+    ioreg = await _sh("ioreg -r -c AppleSmartBattery 2>/dev/null | grep -E '\"CurrentCapacity\"|\"MaxCapacity\"|\"IsCharging\"|\"ExternalConnected\"|\"CycleCount\"|\"Voltage\"'", timeout=8.0)
+    if ioreg:
+        import re
+        def get_num(key):
+            m = re.search(r'\"' + re.escape(key) + r'\"\s*=\s*([0-9]+)', ioreg)
+            return m.group(1) if m else None
+        def get_bool(key):
+            m = re.search(r'\"' + re.escape(key) + r'\"\s*=\s*(Yes|No)', ioreg)
+            return m.group(1) if m else None
+        pct = get_num('CurrentCapacity')
+        maxcap = get_num('MaxCapacity')
+        charging = get_bool('IsCharging')
+        connected = get_bool('ExternalConnected')
+        cycles = get_num('CycleCount')
+        voltage = get_num('Voltage')
+        parts = []
+        if pct: parts.append(f"{pct}%")
+        if maxcap and maxcap != '100': parts.append(f"max {maxcap}%")
+        if charging: parts.append("charging" if charging == 'Yes' else "not charging")
+        if connected: parts.append("power connected" if connected == 'Yes' else "on battery")
+        if cycles: parts.append(f"cycles {cycles}")
+        if voltage: parts.append(f"{voltage} mV")
+        if parts:
+            return " — ".join(parts)
+
+    # Fallback: sysctl if this jailbreak exposes battery keys.
     sysctl = await _sh("sysctl -n hw.battery.capacity hw.battery.voltage 2>/dev/null")
     if sysctl:
         return sysctl

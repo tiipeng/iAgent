@@ -35,6 +35,10 @@ import tools.automation  # noqa: F401
 import tools.native  # noqa: F401
 import tools.touch  # noqa: F401
 import tools.self_debug  # noqa: F401
+import tools.ops_journal  # noqa: F401
+import tools.status_cards  # noqa: F401
+import tools.services  # noqa: F401
+import tools.selftest  # noqa: F401
 
 # A dedicated chat id so CLI conversations don't pollute Telegram history.
 CLI_CHAT_ID = -1

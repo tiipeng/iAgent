@@ -357,6 +357,15 @@ _SCREENSHOT_PATH = "/var/mobile/Media/1ferver/lua/scripts/iagent_screen.png"
 async def screenshot_xx() -> str:
     if await _backend() != "xxtouch":
         return _NO_BACKEND_MSG
+    # Remove any stale screenshot first. XXTouch sometimes writes as root;
+    # if an old root-owned 0644 file remains, a later capture may fail while
+    # our existence check would falsely report success.
+    try:
+        p = Path(_SCREENSHOT_PATH)
+        if p.exists():
+            p.unlink()
+    except Exception:
+        pass
     # Confirmed API: screen.image() returns an image; :png_data() returns
     # PNG bytes. We rotate to match current device orientation so the
     # output looks upright regardless of how the iPad is held.
